@@ -94,10 +94,8 @@ body.arrange-mode .drag-handle{display:block}
     el.style.top = Math.max(8, r.top) + 'px';
     el.style.left = Math.max(8, r.left) + 'px';
     el.style.width = r.width + 'px';
-    // Keep current height to avoid content jumps; pdf pane needs a height
-    if(el.id === 'pdf-pane'){
-      el.style.height = r.height + 'px';
-    }
+    // Keep current height to avoid content jumps
+    el.style.height = r.height + 'px';
   }
   function unfix(el){
     el.style.position = '';
