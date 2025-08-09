@@ -111,6 +111,7 @@ body.arrange-mode .drag-handle{display:block}
   function makeDraggable(el){
     let dragging = false, startX = 0, startY = 0, baseLeft = 0, baseTop = 0;
     let blockedIframe = null;
+    let prevResize = '';
  
     el.addEventListener('mousedown', (e)=>{
       // Start drag if user clicks within the gray card/pane area (not on interactive controls)
@@ -121,6 +122,9 @@ body.arrange-mode .drag-handle{display:block}
       dragging = true;
       startX = e.clientX;
       startY = e.clientY;
+      // Lock current size so dragging doesn't trigger resizing
+      prevResize = el.style.resize;
+      el.style.resize = 'none';
       const r = el.getBoundingClientRect();
       baseLeft = r.left;
       baseTop = r.top;
@@ -150,6 +154,8 @@ body.arrange-mode .drag-handle{display:block}
         blockedIframe.style.pointerEvents = '';
         blockedIframe = null;
       }
+      // Restore previous resize behaviour after dragging ends
+      el.style.resize = prevResize;
     });
   }
  
