@@ -1,0 +1,2469 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Lecture Highlighter — v7.1 (minimal, robust)</title>
+<style>
+:root{--g:linear-gradient(135deg,#60a5fa,#a78bfa 40%,#f472b6);--bg:#0f172a;--panel:#111827;--bd:#334155;--fg:#e2e8f0;--muted:#a3b2c7;--btn:#334155;--btn-bd:#475569}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+.header{padding:10px 14px;border-bottom:1px solid var(--bd);background:#0b1220;display:flex;gap:.75rem;align-items:center;position:sticky;top:0;z-index:5}
+.header h1{margin:0;font-size:1.25rem;background:var(--g);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+.header .spacer{flex:1}
+.small{font-size:.85rem;color:#cbd5e1;opacity:.9}
+
+.main{height:calc(100vh - 52px);display:grid;grid-template-columns:minmax(0,1fr) 420px}
+.pdf-pane{position:relative;overflow:hidden;border-right:1px solid var(--bd);background:#0b1220}
+#viewerContainer{position:absolute;inset:0;overflow:auto}
+#viewer{min-height:100%}
+.pdfViewer .page{position:relative;}
+.placeholder{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;color:#9fb3c8;pointer-events:none;z-index:1}
+
+.textLayer{position:absolute;inset:0;z-index:100;pointer-events:auto;user-select:text !important;}
+.textLayer span{user-select:text !important; pointer-events:auto !important}
+.highlightLayer{position:absolute;inset:0;z-index:50;pointer-events:none;}
+.hlbox{position:absolute;background:rgba(255,219,77,.38);outline:1px solid rgba(255,219,77,.75);border-radius:2px;pointer-events:none}
+
+.side{display:flex;flex-direction:column;background:var(--panel)}
+.side .head{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--bd)}
+.title{font-weight:800;background:var(--g);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+.list{flex:1;overflow:auto;padding:10px}
+.item{background:#0f172a;border:1px solid var(--bd);border-radius:12px;padding:.6rem .7rem;margin:.45rem 0;display:grid;grid-template-columns:1fr auto;gap:.4rem}
+.item .meta{color:#9fb3c8;font-size:.8rem}
+.note{width:100%;background:#0b111b;color:var(--fg);border:1px solid var(--bd);border-radius:8px;padding:.45rem;margin-top:.35rem}
+.row{display:flex;gap:.35rem;flex-wrap:wrap}
+
+.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.35rem .55rem;background:var(--btn);color:#f8fafc;border:1px solid var(--btn-bd);border-radius:8px;cursor:pointer;font-size:.9rem}
+
+/* shrink per-card action buttons by ~33% */
+#cardsPane .item .row .btn{ font-size: .6rem; padding: .22rem .38rem; }
+/* unify per-card action button styling (top-right matches bottom row) */
+#cards .item .sub ul.bullet-list{ list-style: disc; padding-left: 1.1em; margin:.35rem 0 0 0; }
+#cards .item .sub li{ margin:.15rem 0; }
+#cardsPane .item .actions { gap: .35rem; display: flex; align-items: center; }
+#cardsPane .item .actions .btn {
+  font-size: .6rem !important;
+  padding: .22rem .38rem !important;
+  border-radius: 9999px !important;
+}
+
+.btn.ghost{background:transparent}
+
+.tools{display:flex;gap:.5rem;align-items:center}
+input[type=file]{display:none}
+
+.selbar{position:fixed;z-index:50;display:none;background:#0e1520;border:1px solid var(--bd);border-radius:10px;padding:4px;box-shadow:0 10px 22px rgba(0,0,0,.45)}
+.selbar .btn{font-size:.85rem;padding:.3rem .5rem}
+.kbd{border:1px solid #475569;border-bottom-width:2px;border-radius:6px;padding:.05rem .35rem;font-size:.72rem;color:#cbd5e1;background:#0b1220}
+
+.toast{position:fixed;right:12px;bottom:12px;background:#111827;border:1px solid #334155;border-radius:10px;padding:.45rem .6rem;color:#f8fafc;opacity:0;transform:translateY(6px);transition:.22s ease}
+.toast.show{opacity:1;transform:none}
+
+.editing .editor{display:block}
+.editor{display:none; margin-top:.5rem}
+.editor .note{margin: .25rem 0}
+.editor .row{margin-top:.4rem}
+
+
+/* ---- Tabs ---- */
+.tabs{display:flex;gap:.5rem;padding:6px 10px;border-bottom:1px solid var(--bd);align-items:center}
+.tab{background:#0b1220;color:var(--fg);border:1px solid var(--bd);padding:.3rem .6rem;border-radius:8px;cursor:pointer}
+.tab.active{background:#0e1520;color:var(--fg);border-color:var(--bd)}
+/* ---- Flashcards ---- */
+.corner{position:absolute;top:8px;right:10px;font-size:.8rem;opacity:.75;pointer-events:none;}
+#flashPane{padding:10px;display:flex;flex-direction:column;gap:.6rem}
+.fc-card{position:relative;min-height:180px;border:1px solid var(--bd);border-radius:12px;display:flex;align-items:center;justify-content:center;perspective:1000px;overflow:hidden}
+.fc-card .face{position:absolute;inset:0;padding:14px 16px;display:flex;align-items:center;justify-content:center;backface-visibility:hidden;transform-style:preserve-3d}
+.fc-card .front{transform:rotateY(0deg)}
+.fc-card .back{transform:rotateY(180deg)}
+.fc-card.flipped .front{transform:rotateY(180deg)}
+.fc-card.flipped .back{transform:rotateY(360deg)}
+.fc-card, .fc-card .face{transition:transform .38s ease}
+#fcFront,#fcBack{white-space:pre-wrap}
+
+
+.chip{display:inline-flex;align-items:center;gap:.35rem;padding:.25rem .5rem;border:1px solid var(--bd);border-radius:999px;background:#0b1220;color:var(--fg);font-size:.85rem}
+.chip input{accent-color:#93c5fd}
+.fc-card{background:#0b111b;color:var(--fg)}
+.fc-card .face{background:#0b111b;color:var(--fg)}
+
+
+#cardsPane > .head{display:none}
+
+/* Hide text echo under FRONT/BACK in the list */
+#cardsPane .list .item > div:first-child{display:none}
+
+/* Scoped: gradient theme for Cards/Flashcards controls only */
+#cardsPane .btn, #cardsPane label.btn,
+#flashPane .btn, #flashPane label.btn{
+  background: var(--g) !important;
+  color: #fff !important;
+  border-color: transparent !important;
+}
+#cardsPane .btn:hover, #cardsPane label.btn:hover,
+#flashPane .btn:hover, #flashPane label.btn:hover{
+  filter: brightness(1.05);
+}
+
+
+/* ---- Gradient TEXT only for toolbar buttons (keep background) ---- */
+#cardsPane .row > label.btn:has(#importJson),
+#cardsPane .row > button#exportJson.btn,
+#cardsPane .row > button#downloadHtml.btn,
+#cardsPane .row > button#clearCards.btn{
+  background-color: var(--btn) !important;  /* restore original button bg */
+  border-color: var(--btn-bd) !important;
+  background-image: var(--g) !important;    /* gradient text */
+  -webkit-background-clip: text !important;
+  background-clip: text !important;
+  -webkit-text-fill-color: transparent !important;
+  color: transparent !important;
+}
+
+
+/* Undo previous hide: show Front/Back preview text in card list */
+#cardsPane .list .item > div:first-child{display:block !important}
+
+
+/* While editing a card, hide the static Front/Back preview to avoid duplication */
+#cardsPane .list .item.editing > div:first-child{ display:none !important; }
+
+
+#fcOpenNewTab{ margin-top:8px }
+
+#fcOpenNewTab{ margin-top:8px }
+
+#fcOpenNewTab{ margin-top:10px }
+
+#fcOpenNewTab{ margin-top:10px }
+
+/* --- Image support for cards/flashcards + export previews --- */
+.fc-card .face img{max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto}
+.fc-img{max-width:100%;height:auto;display:block;margin:auto}
+.miniThumb{max-width:120px;max-height:80px;display:block;margin-top:6px;border:1px solid var(--bd);border-radius:6px}
+.imgHint{color:#9fb3c8;font-size:.85rem;margin-top:.3rem}
+
+/* --- Drag & Drop ordering --- */
+#cards .item[draggable="true"]{cursor:grab}
+#cards .item.dragging{opacity:.6}
+#cards .item.drop-before{box-shadow:0 -2px 0 0 var(--hl, #56b)}
+#cards .item.drop-after{box-shadow:0 2px 0 0 var(--hl, #56b)}
+
+
+/* --- Snipping Tool (Shift+Drag over slide) --- */
+#snipOverlay{position:absolute;inset:0;pointer-events:none;z-index:9999}
+.snip-rect{position:absolute;border:2px dashed var(--hl, #56b);background:rgba(86,139,255,.08);border-radius:4px;pointer-events:none}
+.snip-toolbar{position:absolute;display:flex;gap:.5rem;background:rgba(20,24,28,.92);border:1px solid var(--bd);border-radius:8px;padding:.4rem .5rem;pointer-events:auto;z-index:10000;box-shadow:0 4px 16px rgba(0,0,0,.35)}
+.snip-btn{font:600 12px/1.2 system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial; padding:.35rem .6rem;border-radius:6px;border:1px solid var(--bd);background:#0f1720;color:#cbd5e1;cursor:pointer}
+.snip-btn:hover{filter:brightness(1.1)}
+@media (prefers-color-scheme: light){
+  .snip-toolbar{background:rgba(255,255,255,.95)}
+  .snip-btn{background:#fff;color:#1f2937}
+}
+
+
+/* --- Prevent scroll chaining from Cards panel to viewer --- */
+#cardsPane{display:flex;flex-direction:column;min-height:0;overscroll-behavior:contain}
+#cardsPane .list{flex:1;overflow:auto;min-height:0;overscroll-behavior:contain}
+aside.side{min-height:0}
+
+
+/* --- Hide scrollbar in Cards list but keep scrolling --- */
+#cardsPane .list{scrollbar-width:none;-ms-overflow-style:none}
+#cardsPane .list::-webkit-scrollbar{width:0;height:0}
+
+
+/* === Ink Tools (next to status) === */
+.ink-tools{display:flex;align-items:center;gap:.25rem;margin-left:.75rem}
+.ink-tools .tool-group{position:relative;display:flex;align-items:center}
+.ink-tools .tool-btn{padding:4px 8px;min-width:32px}
+.ink-tools .tool-caret{padding:4px 6px;margin-left:2px;min-width:24px}
+.ink-tools .tool-btn.active{outline:2px solid #38bdf8;outline-offset:0;border-color:#38bdf8}
+
+/* Menus */
+.ink-tools .menu{position:absolute;top:115%;left:0;background:#0b1220;border:1px solid var(--bd);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,.35);padding:8px;z-index:1000;min-width:220px}
+.ink-tools .menu-row{display:flex;align-items:center;gap:.5rem;margin:.35rem 0}
+.ink-tools .menu-label{font-size:.8rem;color:#cbd5e1;min-width:42px}
+.ink-tools .swatch{width:28px;height:18px;border:1px solid #64748b;background:#94a3b8;border-radius:4px;cursor:pointer}
+.ink-tools .swatch.rect{height:10px}
+.ink-tools .swatch.circle{width:18px;height:18px;border-radius:50%}
+.ink-tools .color{width:20px;height:20px;border-radius:50%;border:1px solid #1f2937;cursor:pointer}
+.ink-tools .menu button:focus{outline:2px solid #38bdf8;outline-offset:1px}
+
+/* Viewer overlay canvas + cursor */
+.ink-canvas{position:absolute;inset:0;z-index:9999;pointer-events:none;opacity:1;}
+.ink-canvas.active{pointer-events:auto;cursor:crosshair;}
+#inkCursor{position:absolute;z-index:4;pointer-events:none;display:none;border:1px solid #38bdf8;background:transparent;border-radius:2px;mix-blend-mode:normal}
+
+/* Text boxes */
+.ink-textbox{position:absolute;min-width:80px;min-height:28px;padding:6px 8px;background:transparent;border:1px solid #60a5fa;border-radius:6px;color:#0b1220;z-index:4;cursor:grab;user-select:none}
+.ink-textbox:focus{outline:none;border-color:#60a5fa;box-shadow:0 0 0 2px rgba(96,165,250,.35)}
+.ink-textbox.selected{outline:2px solid #60a5fa}
+.ink-textbox.editing{cursor:text}
+.ink-textbox .handle{position:absolute;top:-10px;right:-10px;width:0;height:0}
+
+/* Hand cursor when dragging */
+.ink-dragging{cursor:grabbing !important}
+
+.ink-textbox{cursor:grab}
+.ink-textbox.editing{cursor:text}
+
+/* --- Card inline editor modal --- */
+#editCardModal{position:fixed;inset:0;display:none;background:rgba(0,0,0,.45);backdrop-filter:saturate(140%) blur(2px);z-index:9999;}
+#editCardModal .box{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:min(680px,90vw);background:#0b1220;border:1px solid rgba(99,102,241,.25);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.5);padding:14px;}
+#editCardModal .box h3{margin:0 0 8px;font:600 16px/1.2 system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#c7d2fe}
+#editCardModal .box textarea,#editCardModal .box input{width:100%;background:#0f172a;color:#e5e7eb;border:1px solid #243244;border-radius:10px;padding:10px;margin-top:8px;}
+#editCardModal .box .row{display:flex;gap:8px;justify-content:flex-end;margin-top:12px}
+#editCardModal .btn{background:#1f2937;border:1px solid #334155;border-radius:10px;padding:.45rem .8rem;color:#e5e7eb}
+#editCardModal .btn.primary{background:linear-gradient(135deg,#60a5fa,#a78bfa 40%,#f472b6);border-color:transparent;color:#0b1020}
+
+/* Force per-card action rows to use the compact pill layout (same as image cards) */
+#cardsPane .list .item .row{
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: .35rem !important;
+  margin-top: .4rem !important;
+}
+#cardsPane .list .item .row .btn{
+  font-size: .6rem !important;
+  padding: .22rem .38rem !important;
+  border-radius: 9999px !important;
+  min-width: 0 !important;
+  height: auto !important;
+}
+
+/* Layout: make per-card action row span full width and sit under Back/content */
+#cardsPane .list .item .row{
+  grid-column: 1 / -1 !important;
+  justify-content: flex-start !important;
+  align-items: center !important;
+  gap: .35rem !important;
+  margin-top: .5rem !important;
+}
+
+/* Hide scrollbars (but keep scrolling) for viewer + cards panel */
+#viewerContainer, #cardsPane, #cardsPane .list{
+  -ms-overflow-style: none; /* IE/Edge */
+  scrollbar-width: none;    /* Firefox */
+}
+#viewerContainer::-webkit-scrollbar,
+#cardsPane::-webkit-scrollbar,
+#cardsPane .list::-webkit-scrollbar{ display:none; width:0; height:0; }
+
+/* Apply "+ Add Card" gradient theme to top tools and snip toolbar buttons */
+.tools .btn,
+#inkToolbar .btn.tool-btn{
+  background:linear-gradient(135deg,#60a5fa,#a78bfa 40%,#f472b6) !important;
+  border-color:transparent !important;
+  color:#0b1020 !important;
+  box-shadow:none !important;
+}
+#inkToolbar .btn.tool-btn.active{
+  outline:2px solid #60a5fa;
+  outline-offset:0;
+}
+/* Ensure the file input inside the label.btn stays invisible but clickable */
+.tools label.btn input[type="file"]{
+  opacity:0; position:absolute; inset:0; width:100%; height:100%; cursor:pointer;
+}
+
+/* --- Top tools & snip toolbar: white text, 25% smaller, no emojis --- */
+.tools .btn,
+#inkToolbar .btn.tool-btn{
+  color:#ffffff !important;
+  transform:scale(1);
+  transform-origin:left center;
+}
+.tools .btn .ico{ display:none !important; } /* if any icon spans exist */
+
+/* keep layout spacing tighter so the scale doesn't leave extra gaps */
+.tools{ gap:.14rem !important; }
+#inkToolbar .btn.tool-btn{ margin-right:.14rem; }
+
+/* --- Card image quick-zoom overlay --- */
+#imgZoomOverlay{position:fixed;inset:0;display:none;align-items:center;justify-content:center;background:rgba(0,0,0,.55);backdrop-filter:blur(1px);z-index:9998;}
+
+
+/* --- Zoom overlay final overrides --- */
+#imgZoomOverlay{opacity:0; transition:opacity .24s ease;}
+#imgZoomOverlay.show{opacity:1;}
+#imgZoomOverlay .zoombox{
+  width:50vmin; height:50vmin;
+  display:flex; align-items:center; justify-content:center;
+  transform:scale(.94); transition:transform .24s ease;
+}
+#imgZoomOverlay.show .zoombox{ transform:scale(1); }
+#imgZoomOverlay .zoombox img{
+  width:100% !important; height:100% !important;
+  max-width:100% !important; max-height:100% !important;
+  object-fit:contain; border-radius:12px; box-shadow:0 12px 40px rgba(0,0,0,.6);
+}
+
+/* --- Zoom overlay sizing: 25% larger and no letterboxing --- */
+#imgZoomOverlay .zoombox{
+  /* shrink‑wrap to image; no fixed rectangle */
+  width:auto !important;
+  height:auto !important;
+  display:inline-flex !important;
+  align-items:center !important;
+  justify-content:center !important;
+  transform:scale(.94);           /* animate in */
+  transition:transform .24s ease; 
+}
+#imgZoomOverlay.show .zoombox{ transform:scale(1); }
+
+#imgZoomOverlay .zoombox img{
+  /* keep aspect ratio, cap size ~25% larger than before (62.5vmin) */
+  width:auto !important;
+  height:auto !important;
+  max-width:62.5vmin !important;
+  max-height:62.5vmin !important;
+  object-fit:contain !important;
+  background:transparent !important; /* no inner gray */
+  border-radius:12px;
+  box-shadow:0 12px 40px rgba(0,0,0,.6);
+}
+
+/* --- Zoom overlay size bump (+20%) --- */
+#imgZoomOverlay .zoombox img{
+  max-width:75vmin !important;
+  max-height:75vmin !important;
+}
+
+/* gradient theme for tool buttons */
+.tool-btn{
+  background: var(--g);
+  color: #fff !important;
+  border: none !important;
+  box-shadow: 0 6px 18px rgba(79,70,229,.28);
+}
+.tool-btn:hover{ filter: brightness(1.04); transform: translateY(-1px); }
+.tool-btn:active{ transform: translateY(0); filter: brightness(.98); }
+
+/* During drawing, block text selection so strokes show */
+.ink-drawing .textLayer{position:absolute;inset:0;z-index:100;pointer-events:auto;user-select:text !important;}
+
+.ink-tooling .ink-canvas{position:absolute;inset:0;z-index:9999;pointer-events:none;opacity:1;}
+
+/* Download preview modal styles (merged from working build) */
+
+
+#dlPreviewModal .dl-box{position:absolute;inset:3% 4%;background:#0b1220;border:1px solid rgba(255,255,255,.08);border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;overflow:hidden;}
+
+#dlPreviewModal .dl-right{flex:1;min-width:0;display:flex;flex-direction:column;overflow:auto;}
+
+#dlPreviewModal .dl-stage{flex:1;overflow:auto;}
+
+#dlPreviewModal .dl-head{display:flex;gap:.5rem;align-items:center;}
+#dlPreviewModal .dl-head .grow{flex:1}
+#dlPreviewModal .dl-head .ghost.primary{background:linear-gradient(90deg,#a855f7,#ec4899);color:#fff;border:0}
+</style>
+</head>
+<body class=\"ink-tooling\">
+  <div class="header">
+    <h1>Lecture Highlighter</h1>
+    <div id="status" class="small">Initializing viewer…</div>
+    <div id="inkTools" class="ink-tools">
+      <div class="tool-group">
+        <button class="btn tool-btn" id="btnHighlighter" title="Highlighter">🖍️</button><div class="menu" id="menuHighlighter" hidden>
+          <div class="menu-row">
+            <span class="menu-label">Size</span>
+            <button class="swatch rect" data-size-mm="1" title="1 mm"></button>
+            <button class="swatch rect" data-size-mm="2" title="2 mm"></button>
+            <button class="swatch rect" data-size-mm="3" title="3 mm"></button>
+            <button class="swatch rect" data-size-mm="4" title="4 mm"></button>
+          </div>
+          <div class="menu-row">
+            <span class="menu-label">Color</span>
+            <button class="color" data-color="#22c55e" title="Green"></button>
+            <button class="color" data-color="#eab308" title="Yellow"></button>
+            <button class="color" data-color="#ef4444" title="Red"></button>
+            <button class="color" data-color="#3b82f6" title="Blue"></button>
+          </div>
+        </div>
+      </div>
+      <div class="tool-group">
+        <button class="btn tool-btn" id="btnEraser" title="Eraser">🧽</button><div class="menu" id="menuEraser" hidden>
+          <div class="menu-row">
+            <span class="menu-label">Size</span>
+            <button class="swatch circle" data-size-mm="1" title="1 mm"></button>
+            <button class="swatch circle" data-size-mm="2" title="2 mm"></button>
+            <button class="swatch circle" data-size-mm="3" title="3 mm"></button>
+            <button class="swatch circle" data-size-mm="4" title="4 mm"></button>
+          </div>
+        </div>
+      </div>
+      <div class="tool-group">
+        <button class="btn tool-btn" id="btnAddText" title="Add text box">T+</button>
+      </div>
+    </div>
+
+    <div class="spacer"></div>
+    <div class="tools">
+      <label class="btn">📄 Load PDF<input id="pdfInput" type="file" accept="application/pdf,.pdf"></label>
+      <button class="btn" id="copyAll">📋 Copy All</button>
+    </div>
+  </div>
+
+  <div class="main">
+    <div class="pdf-pane">
+      <div id="viewerContainer"><div id="viewer" class="pdfViewer"></div></div>
+      <div id="ph" class="placeholder">Load a PDF to start</div>
+    </div>
+    <aside class="side">
+      
+    <div class="tabs" id="cardsTabs">
+      <button class="tab active" data-tab="cards">Cards</button>
+      <button class="tab" data-tab="flash">Flashcards</button>
+    </div>
+    <div id="cardsPane">
+    <div class="head"><div class="title">Cards</div></div>
+      <div class="row" style="padding:10px;border-bottom:1px solid var(--bd)">
+        <label class="btn">📥 Import JSON<input id="importJson" type="file" accept=".json,application/json" style="display:none"></label>
+        <button class="btn" id="exportJson">📤 Export JSON</button>
+        <button class="btn ghost" id="downloadHtml">⬇️ Download HTML</button>
+        <button class="btn" id="clearCards">🗑️ Clear</button>
+      </div>
+
+      <div style="padding:10px;border-bottom:1px solid var(--bd)">
+        <input id="quickFront" class="note" placeholder="FRONT (optional)"/>
+        <textarea id="quickBack" class="note" placeholder="BACK (required) — paste key text" style="min-height:72px"></textarea>
+        <div class="row" style="margin-top:.4rem">
+          <button class="btn" id="quickAdd">+ Add Card</button>
+        </div>
+      </div>
+      <div id="cards" class="list"></div>
+    </div>
+    <!-- end cardsPane -->
+
+    <div id="flashPane" style="display:none">
+      <div class="fc-head row">
+        <div class="small"><span id="fcPos">1</span>/<span id="fcTotal">0</span></div>
+        <div class="spacer"></div>
+        <label class="chip"><input id="fcShuffle" type="checkbox"/> Shuffle</label>
+        <label class="chip"><input id="fcBackFirst" type="checkbox"/> Back first</label>
+      </div>
+      <div class="fc-card" id="fcCard" tabindex="0" aria-live="polite" aria-label="flashcard">
+        <div class="face front" id="fcFront"></div>
+        <div class="face back" id="fcBack"></div>
+      </div>
+      <div class="row" style="gap:.5rem; justify-content:center">
+        <button class="btn" id="fcPrev">◀ Prev</button>
+        <button class="btn" id="fcFlip">Flip (Space)</button>
+        <button class="btn" id="fcNext">Next ▶</button>
+      </div>
+      <div class="row" style="justify-content:center"><button class="btn" id="fcOpenNewTab">Open in New Tab</button></div>
+    </div>
+    </aside>
+  </div>
+
+  <div id="selBar" class="selbar">
+    <button class="btn" data-act="copy">📋 Copy <span class="kbd">Ctrl+C</span></button>
+    <button class="btn" data-act="create">➕ Create Card</button>
+    <button class="btn" data-act="cancel">✖</button>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+<script>
+// ---------- Light status/toast ----------
+const $ = (s, r=document)=> r.querySelector(s);
+const $$ = (s, r=document)=> Array.from(r.querySelectorAll(s));
+const statusEl = $("#status");
+function setStatus(t){ statusEl.textContent = t; }
+const toastEl = $("#toast");
+function toast(m){ toastEl.textContent=m; toastEl.classList.add("show"); setTimeout(()=>toastEl.classList.remove("show"),1500); }
+
+// --- Keep Cards list wheel/trackpad scroll from affecting the viewer ---
+(function(){
+  const list = document.getElementById('cards');
+  if(!list) return;
+  ['wheel','mousewheel','DOMMouseScroll'].forEach(type=>{
+    list.addEventListener(type, (e)=>{ e.stopPropagation(); }, {passive:true});
+  });
+  // Touch devices
+  list.addEventListener('touchmove', (e)=>{ e.stopPropagation(); }, {passive:true});
+})();
+
+// ---- Image paste helper ----
+function attachImagePaste(el, onReady){
+  if(!el) return;
+  el.addEventListener('paste', (e)=>{
+    try{
+      const items = (e.clipboardData && e.clipboardData.items) || [];
+      for(const it of items){
+        if(it && it.type && it.type.startsWith('image/')){
+          e.preventDefault();
+          const file = it.getAsFile();
+          const reader = new FileReader();
+          reader.onload = ()=> onReady(reader.result);
+          reader.readAsDataURL(file);
+          return;
+        }
+      }
+    }catch(err){ /* noop */ }
+  });
+}
+
+// ---- Card order helpers (persisted) ----
+const ORDER_KEY = ()=> 'cardsOrder:' + (currentFileKey || '__global__');
+function getOrderIds(){
+  try{ return JSON.parse(localStorage.getItem(ORDER_KEY())||'[]') }catch{ return [] }
+}
+function saveOrderIds(ids){
+  try{ localStorage.setItem(ORDER_KEY(), JSON.stringify(ids)); }catch{}
+}
+function defaultSortedIds(){
+  return (Array.isArray(cards)?cards:[]).slice().sort((a,b)=> (Number(a.page||0)-Number(b.page||0)) || String(a.id||'').localeCompare(String(b.id||''))).map(c=>c.id);
+}
+function effectiveOrderIds(){
+  const all = Array.isArray(cards)?cards:[];
+  const set = new Set(all.map(c=>c.id));
+  const cur = getOrderIds().filter(id=>set.has(id));
+  const missing = all.filter(c=>!cur.includes(c.id)).sort((a,b)=> (Number(a.page||0)-Number(b.page||0)) || String(a.id||'').localeCompare(String(b.id||''))).map(c=>c.id);
+  const merged = cur.concat(missing);
+  saveOrderIds(merged);
+  return merged;
+}
+function orderedCards(){
+  const byId = new Map((Array.isArray(cards)?cards:[]).map(c=>[c.id,c]));
+  return effectiveOrderIds().map(id=>byId.get(id)).filter(Boolean);
+}
+
+
+// ---------- Dynamic loader (CSS/JS) ----------
+function loadCSS(hrefs){
+  return new Promise((resolve)=>{
+    const tryNext=(i)=>{
+      if(i>=hrefs.length){ resolve(false); return; }
+      const l=document.createElement('link');
+      l.rel='stylesheet'; l.href=hrefs[i];
+      l.onload=()=>resolve(true);
+      l.onerror=()=>tryNext(i+1);
+      document.head.appendChild(l);
+    };
+    tryNext(0);
+  });
+}
+function loadJS(srcs){
+  return new Promise((resolve)=>{
+    const tryNext=(i)=>{
+      if(i>=srcs.length){ resolve(false); return; }
+      const s=document.createElement('script');
+      s.src=srcs[i];
+      s.onload=()=>resolve(true);
+      s.onerror=()=>tryNext(i+1);
+      document.head.appendChild(s);
+    };
+    tryNext(0);
+  });
+}
+
+async function ensurePdfJs(){
+  if(window.pdfjsLib && window.pdfjsViewer) return true;
+  setStatus("Loading viewer…");
+  const okCss = await loadCSS([
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/web/pdf_viewer.min.css",
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/web/pdf_viewer.min.css",
+    "https://unpkg.com/pdfjs-dist@3.11.174/web/pdf_viewer.css"
+  ]);
+  const okLib = await loadJS([
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js",
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js",
+    "https://unpkg.com/pdfjs-dist@3.11.174/build/pdf.min.js"
+  ]);
+  if(okLib && window.pdfjsLib){
+    try{
+      pdfjsLib.GlobalWorkerOptions.workerSrc = "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js";
+    }catch(e){}
+  }
+  const okViewer = await loadJS([
+    "https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/web/pdf_viewer.min.js",
+    "https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/web/pdf_viewer.min.js",
+    "https://unpkg.com/pdfjs-dist@3.11.174/web/pdf_viewer.js"
+  ]);
+  const ok = !!(okCss && okLib && okViewer && window.pdfjsLib && window.pdfjsViewer);
+  setStatus(ok ? "Viewer ready" : "Viewer failed to load");
+  return ok;
+}
+
+// ---------- PDF.js viewer wiring ----------
+const viewerContainer = $("#viewerContainer");
+const viewerEl = $("#viewer");
+const ph = $("#ph");
+let pdfDoc=null, pdfViewer=null, linkService=null, eventBus=null;
+
+function ensureHighlightLayers(){
+  $$(".page", viewerEl).forEach(pg=>{
+    if(!pg.querySelector(".highlightLayer")){
+      const d=document.createElement("div"); d.className="highlightLayer"; pg.appendChild(d);
+    }
+  });
+}
+function enableTextSelection(){
+  $$(".textLayer", viewerEl).forEach(l=>{
+    l.style.userSelect="text"; l.style.webkitUserSelect="text"; l.style.pointerEvents="auto"; l.style.zIndex="2";
+    l.querySelectorAll("span").forEach(s=>{ s.style.userSelect="text"; s.style.webkitUserSelect="text"; s.style.pointerEvents="auto"; });
+  });
+}
+function initViewer(){
+  eventBus = new pdfjsViewer.EventBus();
+  linkService = new pdfjsViewer.PDFLinkService({ eventBus });
+  const findController = new pdfjsViewer.PDFFindController({ eventBus, linkService });
+  pdfViewer = new pdfjsViewer.PDFViewer({ container: viewerContainer, eventBus, linkService, findController, textLayerMode: 2 });
+  linkService.setViewer(pdfViewer);
+  eventBus.on("pagesinit", ()=>{ try{ pdfViewer.currentScaleValue="page-width"; }catch{} ensureHighlightLayers(); });
+  eventBus.on("pagerendered", ()=>{ ensureHighlightLayers(); enableTextSelection(); renderBoxes(); });
+  eventBus.on("textlayerrendered", ()=>{ enableTextSelection(); });
+}
+
+async function openPdfBytes(bytes, name){
+  try{
+    const workerless = location.protocol==='file:'; // avoid worker under file://
+    const task = pdfjsLib.getDocument({ data: bytes, disableWorker: workerless });
+    pdfDoc = await task.promise;
+    if(!pdfViewer) initViewer();
+    pdfViewer.setDocument(pdfDoc);
+    linkService.setDocument(pdfDoc, null);
+    ph.style.display="none";
+    setStatus((name||"PDF")+" • "+pdfDoc.numPages+" pages"+(workerless?" • safe mode":""));
+    toast((name||"PDF")+" loaded");
+  }catch(err){
+    console.error("openPdfBytes failed", err);
+    setStatus("Couldn’t open PDF");
+    alert("Couldn't open PDF. If this persists, try opening this HTML over http(s).");
+  }
+}
+
+window.addEventListener("load", async ()=>{
+  const ok = await ensurePdfJs();
+  if(ok){ initViewer(); }
+});
+
+// ---------- File input ----------
+$("#pdfInput").addEventListener("change", async (e)=>{
+  const f=e.target.files && e.target.files[0]; if(!f) return;
+  if(!/pdf$/i.test(f.type) && !/\.pdf$/i.test(f.name)){ alert("Pick a .pdf"); e.target.value=""; return; }
+  const bytes = new Uint8Array(await f.arrayBuffer());
+  currentFileKey = fileKeyFromBytes(bytes);
+  saveState(); // prime key (per-file)
+  await openPdfBytes(bytes, f.name);
+  loadState();
+  e.target.value="";
+});
+
+// ---------- Selection toolbar ----------
+const selBar = $("#selBar");
+let selInfo=null;
+function selectionInfo(){
+  const sel = window.getSelection(); if(!sel||sel.isCollapsed) return null;
+  const text = String(sel.toString()||"").trim(); if(!text) return null;
+  let range=null; try{ range=sel.getRangeAt(0);}catch{return null;}
+  const br = range.getBoundingClientRect();
+  function pageFromNode(n){
+    while(n&&n!==document){ if(n.classList && n.classList.contains("page")) return n; n=n.parentNode; }
+    return null;
+  }
+  const common = range.commonAncestorContainer;
+  const pageEl = pageFromNode(common.nodeType===1?common:common.parentNode) || pageFromNode(document.elementFromPoint(br.left+br.width/2, br.top+br.height/2));
+  const pageNum = pageEl ? parseInt(pageEl.getAttribute("data-page-number"),10) : (pdfViewer? pdfViewer.currentPageNumber: 1);
+  const pageRect = pageEl ? pageEl.getBoundingClientRect() : br;
+  const rects = Array.from(range.getClientRects()).map(r=>{
+    return { page: pageNum, x:(r.left-pageRect.left)/pageRect.width, y:(r.top-pageRect.top)/pageRect.height, w:r.width/pageRect.width, h:r.height/pageRect.height };
+  }).filter(r=>r.w>0 && r.h>0);
+  return { text, rects, page: pageNum, br };
+}
+function showSelBarAt(br){ const x = Math.max(8, br.left + (br.width/2) - 40); const y = Math.max(8, br.top - 44); selBar.style.left=x+"px"; selBar.style.top=y+"px"; selBar.style.display="block"; }
+function hideSelBar(){ selBar.style.display="none"; }
+viewerContainer.addEventListener("mouseup", ()=>{
+  const info = selectionInfo();
+  if(info){ selInfo=info; showSelBarAt(info.br); } else { hideSelBar(); }
+});
+document.addEventListener("selectionchange", ()=>{
+  const sel = window.getSelection(); if(!sel || sel.isCollapsed){ hideSelBar(); return; }
+});
+selBar.addEventListener("click",(ev)=>{
+  const b = ev.target.closest("button"); if(!b) return;
+  const act = b.dataset.act;
+  if (act==="cancel"){ window.getSelection()?.removeAllRanges(); selInfo=null; hideSelBar(); return; }
+  if (act==="copy"){ if(selInfo){ navigator.clipboard.writeText(selInfo.text).then(()=>toast("Copied")); } return; }
+  if (act==="create"){ addCardFromSelection(); return; }
+});
+document.addEventListener("keydown",(e)=>{
+  if ((e.ctrlKey || e.metaKey) && (e.key||"").toLowerCase()==="c" && selBar.style.display==="block" && selInfo){
+    e.preventDefault(); navigator.clipboard.writeText(selInfo.text).then(()=>toast("Copied"));
+  }
+});
+
+// ---------- Draw highlight boxes ----------
+function renderBoxes(){
+  $$(".highlightLayer", viewerEl).forEach(l=>l.innerHTML="");
+  for(const h of cards){
+    for(const r of (h.rects||[])){
+      const pageEl = viewerEl.querySelector(`.page[data-page-number="${r.page}"]`);
+      if(!pageEl) continue;
+      const layer = pageEl.querySelector(".highlightLayer"); if(!layer) continue;
+      const d=document.createElement("div");
+      d.className="hlbox";
+      d.style.left=(r.x*100)+"%"; d.style.top=(r.y*100)+"%"; d.style.width=(r.w*100)+"%"; d.style.height=(r.h*100)+"%";
+      layer.appendChild(d);
+    }
+  }
+}
+
+// ---------- Cards ----------
+const cardsEl = $("#cards");
+const quickFront = $("#quickFront");
+const quickBack = $("#quickBack");
+// Back image preview area
+const quickBackPreview = document.createElement('div');
+quickBackPreview.id = 'quickBackPreview';
+quickBack.after(quickBackPreview);
+// Allow pasting image into BACK field
+attachImagePaste(quickBack, (dataUrl)=>{
+  quickBack.dataset.imgSrc = dataUrl;
+  quickBackPreview.innerHTML = '<img class="miniThumb" alt="pasted image" src="'+dataUrl+'"><div class="imgHint">Image attached — will be used as BACK</div>';
+});
+
+let cards=window.cards=[], currentFileKey=null;
+
+function fileKeyFromBytes(bytes){ let h=2166136261; for(let i=0;i<bytes.length;i++){ h^=bytes[i]; h+=(h<<1)+(h<<4)+(h<<7)+(h<<8)+(h<<24);} return "doc-"+(h>>>0).toString(16); }
+function saveState(){ if(!currentFileKey) return; try{ localStorage.setItem(currentFileKey+":cards", JSON.stringify(cards)); }catch{} }
+function loadState(){ if(!currentFileKey) return; try{ const __parsed = JSON.parse(localStorage.getItem(currentFileKey+":cards")||"[]"); cards.length = 0; cards.push(...__parsed); }catch{ cards.length=0 } renderCards(); renderBoxes(); }
+
+function addCardFromSelection(){
+  if(!selInfo) return;
+  const id="c"+Math.random().toString(36).slice(2);
+  const item={ id, front:"", back: selInfo.text, page: selInfo.page, rects: selInfo.rects, note:"" };
+  cards.push(item); saveState(); renderCards(true); renderBoxes(); hideSelBar(); window.getSelection()?.removeAllRanges(); selInfo=null;
+}
+$("#quickAdd").addEventListener("click",()=>{
+  const front=(quickFront.value||"").trim();
+  const back=(quickBack.value||"").trim();
+  const imgSrc = quickBack.dataset.imgSrc || "";
+  if(!back && !imgSrc){ toast("Enter BACK text (or paste an image)"); return; }
+  const id="c"+Math.random().toString(36).slice(2);
+  const page=null;
+  cards.push({id, front, back, img: imgSrc || undefined, page, rects:[], note:""});
+  saveState(); renderCards(true); renderBoxes();
+  // merge the new card into order at the end (after effective reconciliation in render)
+  quickFront.value=""; quickBack.value=""; delete quickBack.dataset.imgSrc; quickBackPreview.innerHTML="";
+});
+
+function renderCards(jump=false){
+  cardsEl.innerHTML="";
+  const __list = orderedCards();
+  for(const c of __list){
+    const el=document.createElement("div"); el.className="item"; el.id=c.id; el.setAttribute('draggable','true');
+    const backPreview = (c.img ? (`<em>[image]</em><br/><img src="${c.img}" class="miniThumb" alt="image">`) : "") + (c.back ? formatBack(c.back) : "");
+    el.innerHTML=`
+      <div><strong>Front:</strong> ${escapeHtml(c.front||"")}<br/><strong>Back:</strong> ${backPreview}</div>
+      ${c.page ? ("<div class=\"meta\">Slide "+c.page+"</div>") : ""}
+      <div class="row">
+        <button class="btn" data-act="jump">Jump</button>
+        <button class="btn" data-act="edit">Edit</button>
+        <button class="btn" data-act="copy">Copy</button>
+        <button class="btn" data-act="del">Delete</button>
+      </div>
+      `;
+    el.querySelector('[data-act="jump"]').onclick=()=>{ if(linkService) linkService.goToPage(c.page); };
+    el.querySelector('[data-act="edit"]').onclick=()=> editCard(el, c);
+    el.querySelector('[data-act="copy"]').onclick=()=> navigator.clipboard.writeText((c.front?c.front+" — ":"")+c.back).then(()=>toast("Copied"));
+    el.querySelector('[data-act="del"]').onclick=()=>{ const i=cards.findIndex(x=>x.id===c.id); if(i>-1){ cards.splice(i,1); saveState(); renderCards(); renderBoxes(); } };
+    cardsEl.appendChild(el);
+    // DnD per-item handlers
+    el.addEventListener('dragstart', (ev)=>{ el.classList.add('dragging'); ev.dataTransfer.setData('text/plain', c.id); });
+    el.addEventListener('dragend', ()=>{ el.classList.remove('dragging'); });
+    el.addEventListener('dragover', (ev)=>{ ev.preventDefault(); ev.dataTransfer.dropEffect='move'; const box=el.getBoundingClientRect(); const mid=box.top+box.height/2; el.classList.toggle('drop-before', ev.clientY<mid); el.classList.toggle('drop-after', ev.clientY>=mid); });
+    el.addEventListener('dragleave', ()=>{ el.classList.remove('drop-before','drop-after'); });
+    el.addEventListener('drop', (ev)=>{
+      ev.preventDefault();
+      const draggedId = ev.dataTransfer.getData('text/plain');
+      if(!draggedId || draggedId===c.id) return;
+      const ids = effectiveOrderIds();
+      const from = ids.indexOf(draggedId);
+      const toBase = ids.indexOf(c.id);
+      const box=el.getBoundingClientRect(); const mid=box.top+box.height/2; const after = el.classList.contains('drop-after') || ev.clientY>=mid;
+      let to = toBase + (after?1:0);
+      if(from<to) to--; // account for removal shift
+      if(from===to || from<0 || to<0) { el.classList.remove('drop-before','drop-after'); return; }
+      ids.splice(from,1); ids.splice(to,0,draggedId);
+      saveOrderIds(ids);
+      renderCards();
+    });
+  }
+  if(jump && cards.length){ const last=$("#"+cards[cards.length-1].id); last && last.scrollIntoView({behavior:"smooth", block:"center"}); }
+}
+function editCard(el, c){
+  const modal = document.getElementById('editCardModal');
+  const front = document.getElementById('ecFront');
+  const back = document.getElementById('ecBack');
+  const btnS = document.getElementById('ecSave');
+  const btnC = document.getElementById('ecCancel');
+  front.value = c.front || '';
+  back.value = c.back || '';
+  modal.style.display = 'block';
+  function close(){
+    modal.style.display='none';
+    btnS.removeEventListener('click', onSave);
+    btnC.removeEventListener('click', onCancel);
+    window.removeEventListener('keydown', onKey);
+  }
+  function onSave(){
+    c.front = front.value.trim();
+    c.back = back.value.trim();
+    if(typeof saveState==='function') saveState();
+    renderCards();
+    close();
+  }
+  function onCancel(){ close(); }
+  btnS.addEventListener('click', onSave);
+  btnC.addEventListener('click', onCancel);
+  function onKey(e){ if(e.key==='Escape'){ close(); } }
+  window.addEventListener('keydown', onKey);
+}
+function escapeHtml(s){ return String(s||"").replace(/[&<>\"']/g, m=>({"&":"&amp;","<":"&lt;","&gt;":"&gt;","\"":"&quot;","'":"&#39;"}[m])); }
+// Format card BACK text: bullets & newlines -> HTML
+function formatBack(raw){
+  const s = String(raw||'').trim();
+  if(!s) return "";
+  const lines = s.split(/\r?\n/).filter(l=>l.trim().length);
+  const bulletish = lines.filter(l=>/^\s*[\*\-]\s+/.test(l)).length;
+  if(bulletish && bulletish >= Math.max(1, Math.floor(lines.length*0.6))){
+    const items = lines.map(l=>l.replace(/^\s*[\*\-]\s+/, '').trim())
+                       .map(t=>`<li>${escapeHtml(t)}</li>`).join("");
+    return `<ul class="sub bullet-list">${items}</ul>`;
+  }
+  return `<div class="sub">${escapeHtml(lines.join("\n")).replace(/\n/g,"<br>")}</div>`;
+}
+
+
+// Copy all
+$("#copyAll").addEventListener("click", ()=>{
+  const lines = (typeof orderedCards==='function' ? orderedCards() : cards).map(c=>`• ${(c.front||"")}${c.front&&c.back?" — ":""}${c.back} (p.${c.page})`);
+  navigator.clipboard.writeText(lines.join("\n")).then(()=>toast("Copied all"));
+});
+
+
+// === Persistent ink save/restore & autosave ===
+function inkKeyFor(page){ return (currentFileKey? (currentFileKey+':ink:'+page) : null); }
+
+function saveInkForPage(pageDiv){
+  try{
+    if(!pageDiv || !currentFileKey) return;
+    const cv = pageDiv.querySelector('canvas.ink-canvas'); if(!cv) return;
+    const page = pageDiv.dataset && pageDiv.dataset.pageNumber;
+    const key = inkKeyFor(page); if(!key) return;
+    const data = cv.toDataURL('image/png');
+    localStorage.setItem(key, data);
+  }catch(_e){ /* ignore quota/tainted */ }
+}
+
+function restoreInkForPage(pageDiv){
+  try{
+    if(!pageDiv || !currentFileKey) return;
+    const cv = pageDiv.querySelector('canvas.ink-canvas'); if(!cv) return;
+    const page = pageDiv.dataset && pageDiv.dataset.pageNumber;
+    const key = inkKeyFor(page); if(!key) return;
+    const data = localStorage.getItem(key);
+    if(!data) return;
+    const img = new Image();
+    img.onload = () => { try{ cv.getContext('2d').drawImage(img, 0,0, cv.width, cv.height); }catch{} };
+    img.src = data;
+  }catch(_e){}
+}
+
+// Hook into overlay creation to restore saved ink
+(function(){
+  const _appendOverlay = (pageDiv)=>{
+    const baseCanvas = pageDiv.querySelector('canvas');
+    const overlay = document.createElement('canvas');
+    overlay.className = 'ink-canvas';
+    overlay.style.zIndex = '9999';
+    overlay.style.opacity = '1';
+    overlay.style.transform = 'translateZ(0)'; overlay.style.position='absolute'; overlay.style.left='0'; overlay.style.top='0'; overlay.style.mixBlendMode='multiply';
+    overlay.width  = baseCanvas ? baseCanvas.width  : pageDiv.offsetWidth * (window.devicePixelRatio||2);
+    overlay.height = baseCanvas ? baseCanvas.height : pageDiv.offsetHeight * (window.devicePixelRatio||2);
+    overlay.style.width = (baseCanvas ? baseCanvas.offsetWidth : pageDiv.offsetWidth) + 'px';
+    overlay.style.height = (baseCanvas ? baseCanvas.offsetHeight : pageDiv.offsetHeight) + 'px';
+    pageDiv.appendChild(overlay);
+
+    // initialize history
+    try{
+      const ctx = overlay.getContext('2d', {alpha:true, willReadFrequently:true, desynchronized:true});
+      const blank = ctx.getImageData(0,0,overlay.width,overlay.height);
+      pageHistory.set(pageDiv, {undo:[blank], redo:[]});
+    }catch{}
+    // restore if any
+    restoreInkForPage(pageDiv);
+  };
+
+  // Replace the original overlay creation if present by monkey patching MutationObserver callback.
+  // We look for the place where overlays are added and if not found, we attach after pages appear.
+  const viewer = document.getElementById('viewer');
+  if(viewer){ try{ updateOverlaysPointerEvents(); }catch{}
+    const mo = new MutationObserver(()=>{
+      document.querySelectorAll('#viewer .page').forEach(pg=>{
+        if(!pg.querySelector('canvas.ink-canvas')){ ensureCanvasOn(pg); }
+      });
+    });
+    mo.observe(viewer, {childList:true, subtree:true});
+    
+  // Ensure overlay exists on already-rendered pages
+  document.querySelectorAll('#viewer .page').forEach(pg=> ensureCanvasOn(pg));
+// In case pages already present:
+    document.querySelectorAll('#viewer .page').forEach(pg=>{
+      if(!pg.querySelector('canvas.ink-canvas')) _appendOverlay(pg);
+    });
+  }
+})();
+
+// Autosave loop: cards (existing saveState), order, and incremental page inks
+(function(){
+  function visiblePages(){
+    const c = document.getElementById('viewerContainer') || document.getElementById('viewer');
+    if(!c) return [];
+    const cr = c.getBoundingClientRect();
+    return Array.from(document.querySelectorAll('#viewer .page')).filter(pg=>{
+      const r = pg.getBoundingClientRect();
+      return r.bottom > cr.top && r.top < cr.bottom;
+    });
+  }
+  function saveDirtyInk(){
+    const dirty = Array.from(document.querySelectorAll('#viewer .page[data-ink-dirty="1"]'));
+    if(dirty.length){
+      dirty.forEach(pg=>{ try{ saveInkForPage(pg); pg.removeAttribute('data-ink-dirty'); }catch{} });
+    }else{
+      // Fallback: save only visible pages
+      visiblePages().forEach(pg=>{ try{ saveInkForPage(pg); }catch{} });
+    }
+  }
+  setInterval(()=>{
+    try{
+      if(!currentFileKey) return;
+      saveState();
+      saveDirtyInk();
+      try{ localStorage.setItem('lastFileKey', currentFileKey); }catch{}
+    }catch{}
+  }, 5000);
+})();;
+
+// Persist loaded PDF name/dataURL so we can restore later
+function setLastPdf(name, dataUrl){
+  try{
+    if(!currentFileKey) return;
+    localStorage.setItem(currentFileKey+':pdfName', name||'');
+    if(dataUrl) localStorage.setItem(currentFileKey+':pdfDataUrl', dataUrl);
+    localStorage.setItem('lastFileKey', currentFileKey);
+  }catch{}
+}
+function dataURLToBytes(dataUrl){
+  try{
+    const parts = dataUrl.split(',');
+    const b64 = parts[1]; const bin = atob(b64);
+    const buf = new Uint8Array(bin.length);
+    for(let i=0;i<bin.length;i++) buf[i]=bin.charCodeAt(i);
+    return buf;
+  }catch{ return null; }
+}
+// Try to auto-restore last session on load
+window.addEventListener('DOMContentLoaded', async ()=>{
+  try{
+    if(currentFileKey) return;
+    const key = localStorage.getItem('lastFileKey'); if(!key) return;
+    const dataUrl = localStorage.getItem(key+':pdfDataUrl'); if(!dataUrl) return;
+    const name = localStorage.getItem(key+':pdfName') || 'PDF';
+    const bytes = dataURLToBytes(dataUrl);
+    if(!bytes) return;
+    currentFileKey = key;
+    await openPdfBytes(bytes, name);
+    loadState(); // will render cards/boxes; ink restores via overlay hook
+  }catch{}
+});
+// ===== Flashcards Toolbar (Import/Export JSON, Download HTML, Clear) =====
+const importJson = document.getElementById('importJson');
+const exportJson = document.getElementById('exportJson');
+const downloadHtmlBtn = document.getElementById('downloadHtml');
+const clearBtn = document.getElementById('clearCards');
+
+exportJson?.addEventListener('click', ()=>{
+  const data = JSON.stringify({ cards, fileKey: currentFileKey }, null, 2);
+  const blob = new Blob([data], {type:'application/json'});
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = (currentFileKey||'cards') + '.json';
+  document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+});
+
+importJson?.addEventListener('change', async (e)=>{
+  const f = e.target.files && e.target.files[0]; if(!f) return;
+  try{
+    const txt = await f.text();
+    const obj = JSON.parse(txt);
+    if (Array.isArray(obj)) {
+      cards.length = 0; cards.push(...obj);
+    } else if (obj && Array.isArray(obj.cards)) {
+      cards.length = 0; cards.push(...obj.cards);
+    } else {
+      alert("Invalid JSON format");
+      e.target.value = "";
+      return;
+    }
+    saveState(); renderCards(true); renderBoxes();
+    toast("Imported");
+  }catch(err){ alert("Failed to import JSON"); }
+  e.target.value = "";
+});
+
+
+// ---- Build Cards Summary (mirrored style) ----
+function buildCardsSummaryHtml(cards){
+  const rows = (Array.isArray(cards)?cards:[]).map(c=>{
+    const front = String(c.front||"").trim();
+    const back  = String(c.back||"").trim();
+    const page  = Number(c.page||0);
+    return { line: front, sub: back, page, img: c.img || '' };
+  });
+  const body = rows.map(r=>`
+    <li>
+      <div class="line">${escapeHtml(r.line||"")}</div>
+      ${r.img?`<div class="sub"><img src="${r.img}" style="max-width:50%;width:50%;height:auto"/></div>`:(r.sub?`${formatBack(r.sub)}`:"")}
+      ${r.page?`<div class="meta">slide ${r.page}</div>`:""}
+    </li>`).join("");
+  const title = "summary";
+  return `<!doctype html><html><head><meta charset="utf-8"><meta name="color-scheme" content="dark"><title>${title}</title>
+    <style>
+      :root{--g:linear-gradient(135deg,#60a5fa,#a78bfa 40%,#f472b6);--bg:#0f172a;--panel:#0b1220;--bd:#334155;--fg:#e2e8f0;--muted:#9fb3c8}
+      html,body{background:var(--bg);color:var(--fg);margin:0;font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}
+      header{padding:16px 18px;border-bottom:1px solid var(--bd);background:#0b1220;position:sticky;top:0;display:flex;align-items:center}
+      h1{margin:0;font-size:1.5rem;background:var(--g);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}
+      main{padding:18px;max-width:980px;margin:0 auto}
+      ul{list-style:disc;padding-left:22px;display:grid;gap:12px}
+      li{background:var(--panel);border:1px solid var(--bd);border-radius:14px;padding:12px 14px}
+      .line{font-size:1.05rem;line-height:1.55}
+      .sub{color:#dbeafe;margin-top:6px}
+      .sub ul.bullet-list{ list-style: disc; padding-left: 1.2em; margin:.35rem 0 0 0; }
+      .sub li{ margin:.15rem 0; }
+
+      .meta{color:#9fb3c8;font-size:.85rem;margin-top:6px}
+      @media print{header{position:static} li{break-inside:avoid}}
+    </style>
+  </head><body><header><h1>${title}</h1></header><main><ul>${body}</ul></main></body></html>`;
+}
+
+downloadHtmlBtn?.addEventListener('click', ()=>{
+  try{
+    if(!Array.isArray(cards) || !cards.length){ alert('No cards to export.'); return; }
+    const htmlTxt = buildCardsSummaryHtml(typeof orderedCards==='function' ? orderedCards() : cards);
+    const blob = new Blob([htmlTxt], {type:'text/html;charset=utf-8'});
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'summary.html';
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  }catch(e){ alert('Download failed'); }
+});
+clearBtn?.addEventListener('click', ()=>{
+  if(!cards.length) { toast("No cards"); return; }
+  if(confirm("Clear all cards?")){
+    cards.length = 0;
+    saveState(); renderCards(); renderBoxes();
+  }
+});
+
+// ===== Inline Edit (no prompts) =====
+function editCard(el, c){
+  const modal = document.getElementById('editCardModal');
+  const front = document.getElementById('ecFront');
+  const back = document.getElementById('ecBack');
+  const btnS = document.getElementById('ecSave');
+  const btnC = document.getElementById('ecCancel');
+  front.value = c.front || '';
+  back.value = c.back || '';
+  modal.style.display = 'block';
+  function close(){ modal.style.display='none'; btnS.removeEventListener('click', onSave); btnC.removeEventListener('click', onCancel); }
+  function onSave(){
+    const f = front.value.trim();
+    const b = back.value.trim();
+    c.front = f;
+    c.back = b;
+    if(typeof saveState==='function') saveState();
+    renderCards();
+    close();
+  }
+  function onCancel(){ close(); }
+  btnS.addEventListener('click', onSave);
+  btnC.addEventListener('click', onCancel);
+  // ESC to close
+  function onKey(e){ if(e.key==='Escape'){ close(); window.removeEventListener('keydown', onKey); } }
+  window.addEventListener('keydown', onKey);
+}// ===== Tabs & Flashcards (viewer untouched) =====
+(function(){
+  const tabs = document.getElementById('cardsTabs');
+  const cardsPane = document.getElementById('cardsPane');
+  const flashPane = document.getElementById('flashPane');
+  if (!tabs || !cardsPane || !flashPane) return;
+
+  function setTab(which){
+    Array.from(tabs.querySelectorAll('.tab')).forEach(b=> b.classList.toggle('active', b.dataset.tab===which));
+    if (which === 'flash'){
+      cardsPane.style.display = 'none';
+      flashPane.style.display = 'block';
+      fcInit();
+    }else{
+      flashPane.style.display = 'none';
+      cardsPane.style.display = 'block';
+    }
+  }
+  tabs.addEventListener('click', (e)=>{
+    const b = e.target.closest('.tab'); if(!b) return;
+    setTab(b.dataset.tab);
+  });
+
+  // ---- Flashcards state
+  let order = [];
+  let idx = 0;
+  let showBackFirst = false;
+  const frontEl = document.getElementById('fcFront');
+  const backEl = document.getElementById('fcBack');
+  const cardEl = document.getElementById('fcCard');
+  const posEl = document.getElementById('fcPos');
+  const totEl = document.getElementById('fcTotal');
+  const chkShuffle = document.getElementById('fcShuffle');
+  const chkBackFirst = document.getElementById('fcBackFirst');
+  const btnPrev = document.getElementById('fcPrev');
+  const btnNext = document.getElementById('fcNext');
+  const btnFlip = document.getElementById('fcFlip');
+
+  function shuffleInPlace(a){
+    for(let i=a.length-1;i>0;i--){ const j=(Math.random()* (i+1))|0; [a[i],a[j]]=[a[j],a[i]]; }
+  }
+
+  function fcInit(){
+    if (!Array.isArray(window.cards)) window.cards.length = 0;
+    order = (function(){ const ids = (typeof effectiveOrderIds==='function'? effectiveOrderIds() : (window.cards||[]).map(c=>c.id)); const id2i = new Map((window.cards||[]).map((c,i)=>[c.id,i])); return ids.map(id=>id2i.get(id)).filter(i=>i>=0); })();
+    totEl.textContent = order.length;
+    if (chkShuffle.checked) shuffleInPlace(order);
+    idx = 0;
+    cardEl.classList.remove('flipped');
+    renderFC();
+  }
+
+  function renderFC(){
+    if (!order.length){ frontEl.textContent = 'No cards.'; backEl.textContent=''; posEl.textContent='0'; return; }
+    const c = window.cards[order[idx]] || {};
+    const f = (c.front||'').trim();
+    const b = (c.back||'').trim();
+    const hasImg = !!c.img;
+    function setFace(el, text, imgSrc){ if(imgSrc){ el.innerHTML = '<img src="'+imgSrc+'" class="fc-img" alt="">'; } else { el.textContent = text; } }
+    if (showBackFirst){ setFace(frontEl, b, hasImg ? c.img : ""); setFace(backEl, f, ""); }
+    else { setFace(frontEl, f, ""); setFace(backEl, b, hasImg ? c.img : ""); }
+    posEl.textContent = (idx+1);
+  }
+
+  function next(){ if(!order.length) return; idx = (idx+1) % order.length; cardEl.classList.remove('flipped'); renderFC(); }
+  function prev(){ if(!order.length) return; idx = (idx-1+order.length) % order.length; cardEl.classList.remove('flipped'); renderFC(); }
+  function flip(){ cardEl.classList.toggle('flipped'); }
+
+  btnNext?.addEventListener('click', next);
+  btnPrev?.addEventListener('click', prev);
+  btnFlip?.addEventListener('click', flip);
+  chkShuffle?.addEventListener('change', ()=>{ fcInit(); });
+  chkBackFirst?.addEventListener('change', ()=>{ showBackFirst = !!chkBackFirst.checked; cardEl.classList.remove('flipped'); renderFC(); });
+
+  // Keyboard: only when flashPane visible
+  let _lastMousePos={x:0,y:0}; document.addEventListener('mousemove', ev=>{ _lastMousePos.x=ev.clientX||0; _lastMousePos.y=ev.clientY||0; }); document.addEventListener('pointermove', ev=>{ _lastMousePos.x=ev.clientX||0; _lastMousePos.y=ev.clientY||0; });
+document.addEventListener('keydown', (e)=>{
+    try{ const r=document.getElementById('viewerContainer').getBoundingClientRect(); const x=e.clientX||0, y=e.clientY||0; if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom){ if(e.key==='Escape'){ setTool(null); } } }catch{}
+    if (flashPane.style.display !== 'block') return;
+    const tag = (e.target.tagName||'').toLowerCase();
+    if (tag === 'input' || tag === 'textarea') return;
+    if (e.code === 'Space'){ e.preventDefault(); flip(); }
+    else if (e.key === 'ArrowRight'){ e.preventDefault(); next(); }
+    else if (e.key === 'ArrowLeft'){ e.preventDefault(); prev(); }
+  });
+
+  // If tab already active on load, init
+  if (tabs.querySelector('.tab.active')?.dataset.tab === 'flash') fcInit();
+})();
+
+
+// ---- Snipping Tool (Shift+Drag over slide) ----
+(function(){
+  const vc = document.querySelector('#viewerContainer') || document.querySelector('#viewer') || document.body;
+  if(!vc) return;
+  const cs = getComputedStyle(vc); if (cs.position === 'static') vc.style.position = 'relative';
+
+  let overlay = document.getElementById('snipOverlay');
+  if(!overlay){ overlay = document.createElement('div'); overlay.id = 'snipOverlay'; overlay.style.display='none'; vc.appendChild(overlay); }
+  let rectEl = overlay.querySelector('.snip-rect');
+  if(!rectEl){ rectEl = document.createElement('div'); rectEl.className='snip-rect'; overlay.appendChild(rectEl); }
+  let tbar = vc.querySelector('.snip-toolbar');
+  if(!tbar){ tbar = document.createElement('div'); tbar.className='snip-toolbar'; tbar.style.display='none'; tbar.innerHTML='<button class=\"snip-btn\" id=\"snipCreate\">Create card</button><button class=\"snip-btn\" id=\"snipCancel\">Cancel</button>'; vc.appendChild(tbar); }
+  const btnCreate = tbar.querySelector('#snipCreate'); const btnCancel = tbar.querySelector('#snipCancel');
+
+  let startX=0,startY=0,endX=0,endY=0,dragging=false;
+
+  function resetUI(){ dragging=false; overlay.style.display='none'; tbar.style.display='none'; rectEl.style.width=rectEl.style.height='0px'; }
+  function getSelRect(){ const x1=Math.min(startX,endX), y1=Math.min(startY,endY), x2=Math.max(startX,endX), y2=Math.max(startY,endY); return {x:x1,y:y1,w:Math.max(0,x2-x1),h:Math.max(0,y2-y1)}; }
+  function toVCSpaceRect(r){ const b=vc.getBoundingClientRect(); return {x:r.left-b.left+vc.scrollLeft,y:r.top-b.top+vc.scrollTop,w:r.width,h:r.height}; }
+  function intersect(a,b){ const x1=Math.max(a.x,b.x), y1=Math.max(a.y,b.y), x2=Math.min(a.x+a.w,b.x+b.w), y2=Math.min(a.y+a.h,b.y+b.h); const w=Math.max(0,x2-x1), h=Math.max(0,y2-y1); return {x:x1,y:y1,w,h,area:w*h}; }
+
+  vc.addEventListener('mousedown',(e)=>{ if(!e.shiftKey||e.button!==0) return; const box=vc.getBoundingClientRect(); startX=endX=e.clientX-box.left+vc.scrollLeft; startY=endY=e.clientY-box.top+vc.scrollTop; overlay.style.display='block'; rectEl.style.left=startX+'px'; rectEl.style.top=startY+'px'; rectEl.style.width=rectEl.style.height='0px'; dragging=true; e.preventDefault(); }, true);
+  vc.addEventListener('mousemove',(e)=>{ if(!dragging) return; const box=vc.getBoundingClientRect(); endX=e.clientX-box.left+vc.scrollLeft; endY=e.clientY-box.top+vc.scrollTop; const r=getSelRect(); rectEl.style.left=r.x+'px'; rectEl.style.top=r.y+'px'; rectEl.style.width=r.w+'px'; rectEl.style.height=r.h+'px'; }, true);
+  vc.addEventListener('mouseup',(e)=>{ if(!dragging) return; dragging=false; const r=getSelRect(); if(r.w<8||r.h<8){ resetUI(); return; } const tbx=Math.min(r.x+r.w+6, vc.scrollWidth-140); const tby=Math.max(r.y-40, 0); tbar.style.left=tbx+'px'; tbar.style.top=tby+'px'; tbar.style.display='flex'; }, true);
+
+  btnCancel.addEventListener('click', resetUI);
+  btnCreate.addEventListener('click', async()=>{
+    try{
+      const sel=getSelRect();
+      const canvases=Array.from(document.querySelectorAll('.page canvas')).filter(c=>!c.classList.contains('ink-canvas'));
+      if(!canvases.length){ resetUI(); return; }
+      const vcBox=vc.getBoundingClientRect();
+      let best=null;
+      for(const can of canvases){
+        const cr = toVCSpaceRect(can.getBoundingClientRect());
+        const iv = intersect(sel, cr);
+        if(iv.area>0 && (!best || iv.area>best.area)) best={can, cr, iv};
+      }
+      if(!best || best.iv.area<16){ resetUI(); return; }
+      const can=best.can; let cBox=can.getBoundingClientRect(); let srcCan = can;
+      const ix=Math.max(sel.x+vcBox.left-vc.scrollLeft, cBox.left), iy=Math.max(sel.y+vcBox.top-vc.scrollTop, cBox.top);
+      const ax=Math.min(sel.x+sel.w+vcBox.left-vc.scrollLeft, cBox.right), ay=Math.min(sel.y+sel.h+vcBox.top-vc.scrollTop, cBox.bottom);
+      const iw=Math.max(0, ax-ix), ih=Math.max(0, ay-iy); if(iw<4||ih<4){ resetUI(); return; }
+            // fallback: if the PDF canvas isn't fully available (offscreen), render from pdfDoc
+      try{
+        if(!(srcCan && srcCan.width && srcCan.height)){
+          const pEl = can.closest('.page');
+          const n = +(pEl && pEl.dataset && pEl.dataset.pageNumber) || (window.pdfViewer && pdfViewer.currentPageNumber) || 1;
+          if(typeof ensurePdfDocFromViewer==='function') ensurePdfDocFromViewer();
+          if(typeof rasterizePage==='function'){
+            const base = await rasterizePage(n, 2);
+            if(base){ srcCan = base; cBox = {left:0, top:0, width: base.width, height: base.height, right: base.width, bottom: base.height}; }
+          }
+        }
+      }catch(_ee){}
+const scaleX=srcCan.width/cBox.width, scaleY=srcCan.height/cBox.height;
+      const sx=Math.floor((ix-cBox.left)*scaleX), sy=Math.floor((iy-cBox.top)*scaleY), sw=Math.floor(iw*scaleX), sh=Math.floor(ih*scaleY);
+      const tmp=document.createElement('canvas'); tmp.width=Math.max(1,sw); tmp.height=Math.max(1,sh);
+      const tctx=tmp.getContext('2d'); tctx.drawImage(srcCan, sx, sy, sw, sh, 0,0, sw, sh);
+      // also composite ink overlay if present
+      try{
+        const pageEl2 = can.closest('.page');
+        const ink = pageEl2 && pageEl2.querySelector('canvas.ink-canvas');
+        if(ink){ const ib = ink.getBoundingClientRect(); const isx=Math.floor((ix-ib.left)* (ink.width/ib.width)); const isy=Math.floor((iy-ib.top)*(ink.height/ib.height)); const isw=Math.floor(iw*(ink.width/ib.width)); const ish=Math.floor(ih*(ink.height/ib.height)); tctx.drawImage(ink, isx, isy, isw, ish, 0,0, sw, sh); }
+      }catch(_e){}
+
+      const dataUrl=tmp.toDataURL('image/png');
+      const pageEl2 = can.closest('.page'); let page=1; if(pageEl2 && pageEl2.dataset && pageEl2.dataset.pageNumber){ page = parseInt(pageEl2.dataset.pageNumber)||1; } else if(window.pdfViewer && pdfViewer.currentPageNumber){ page = pdfViewer.currentPageNumber; }
+      const quickFront = document.querySelector('#quickFront'); const front = (quickFront && quickFront.value || '').trim();
+      const id = 'c'+Math.random().toString(36).slice(2);
+      window.cards = Array.isArray(window.cards) ? window.cards : [];
+      window.cards.push({id, front, back:'', img:dataUrl, page, rects:[], note:''});
+      if (typeof saveState==='function') saveState(); if (typeof renderCards==='function') renderCards(true); if (typeof renderBoxes==='function') renderBoxes();
+      if (typeof toast==='function') toast('Card created from snip');
+    }catch(err){ try{ console.error('Snip error:', err); }catch(_){} if(typeof toast==='function') toast('Snip failed'); } finally{ resetUI(); }
+  });
+  window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') resetUI(); });
+})();
+</script>
+
+
+<script>
+
+
+
+// Flashcards: Open deck in a NEW TAB (safe, no backticks inside parent)
+(function(){
+  const btn = document.getElementById('fcOpenNewTab');
+  if(!btn) return;
+  btn.addEventListener('click', ()=>{
+    try{
+      const src = (typeof orderedCards==='function' ? orderedCards() : (Array.isArray(window.cards)?window.cards:[]));
+      const deck = src.map(c=>({front:c.front||"", back:c.back||"", page:c.page, img:c.img||""}));
+      const payload = JSON.stringify(deck);
+
+      const parts = [];
+      parts.push('<!doctype html><html><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">');
+      parts.push('<title>Flashcards — Full Tab</title>');
+      parts.push('<style>');
+      parts.push(':root{--bg:#0b1220;--fg:#e2e8f0;--bd:#1f2937;--g:linear-gradient(135deg,#60a5fa,#a78bfa 40%,#f472b6);}');
+      parts.push('html,body{height:100%;margin:0;background:var(--bg);color:var(--fg);font-family:system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif}');
+      parts.push('.wrap{max-width:1000px;margin:0 auto;padding:16px;display:flex;flex-direction:column;gap:12px}');
+      parts.push('.row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center}');
+      parts.push('.btn{display:inline-flex;align-items:center;gap:.35rem;padding:.5rem .9rem;background:var(--g);color:#fff;border:1px solid transparent;border-radius:10px;cursor:pointer}');
+      parts.push('.btn:hover{filter:brightness(1.05)}');
+      parts.push('.scene{perspective:1000px}');
+      parts.push('.card{position:relative;min-height:260px;border:1px solid var(--bd);border-radius:12px;background:#0b111b;overflow:hidden}');
+      parts.push('.card .face{position:absolute;inset:0;padding:18px;display:flex;align-items:center;justify-content:center;white-space:pre-wrap;backface-visibility:hidden;transform-style:preserve-3d}');
+      parts.push('.card .front{transform:rotateY(0deg)}');
+      parts.push('.card .back{transform:rotateY(180deg)}');
+      parts.push('.card.flipped .front{transform:rotateY(180deg)}');
+      parts.push('.card.flipped .back{transform:rotateY(360deg)}');
+      parts.push('.card, .card .face{transition:transform .38s ease}');
+      parts.push('.small{color:#9fb3c8}');
+      parts.push('.title{font-weight:800;background:var(--g);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent;font-size:1.2rem}');
+      parts.push('.counts{margin-left:auto;display:flex;gap:12px;align-items:center}');
+      parts.push('.toggle{cursor:pointer;padding:.2rem .5rem;border:1px solid var(--bd);border-radius:8px;background:#0f172a;color:var(--fg)}');
+      parts.push('.dropdown{display:none}.dropdown.open{display:block}');
+      parts.push('.drop{display:grid;grid-template-columns:1fr 1fr;gap:10px;background:#0b1220;border:1px solid var(--bd);border-radius:12px;padding:10px;margin-top:6px}');
+      parts.push('.drop .hdr{font-weight:700;margin-bottom:6px;background:var(--g);-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent;color:transparent}');
+      parts.push('.drop ul{list-style:disc;padding-left:18px;max-height:180px;overflow:auto;margin:0}');
+      parts.push('.drop li{cursor:pointer}.meta{color:#9fb3c8;font-size:.8rem}');
+      parts.push('</style></head><body>');
+      parts.push('<div class="wrap">');
+      parts.push('<div class="row"><div class="title">Flashcards</div><div id="pos" class="small" style="margin-left:8px"></div>');
+      parts.push('<div class="counts"><div class="small">Study: <span id="studyCt">0</span> · Known: <span id="knownCt">0</span></div>');
+      parts.push('<button class="toggle" id="listToggle">List ▾</button></div></div>');
+      parts.push('<div id="lists" class="dropdown"><div class="drop"><div><div class="hdr">Known</div><ul id="knownList"></ul></div>');
+      parts.push('<div><div class="hdr">Unknown</div><ul id="unknownList"></ul></div></div></div>');
+      parts.push('<div class="scene"><div id="card" class="card"><div id="front" class="face front"><div class="corner" id="fcCornerF"></div></div><div id="back" class="face back"><div class="corner" id="fcCornerB"></div></div></div></div>');
+      parts.push('<div class="row"><button class="btn" id="prev">◀ Prev</button><button class="btn" id="flip">Flip</button><button class="btn" id="next">Next ▶</button><span style="flex:1"></span><button class="btn" id="markStudy">Study</button><button class="btn" id="markKnown">Known</button></div>');
+      parts.push('</div>'); // wrap
+
+      parts.push('<scr'+'ipt>');
+      // Child JS (no backticks)
+      child_js = ''
+        + 'var deck = JSON.parse(' + JSON.stringify(payload) + ');'
+        + 'var i=0; var study=new Set(), known=new Set();'
+        + 'var card=document.getElementById("card"), front=document.getElementById("front"), back=document.getElementById("back"); var cornerF=document.getElementById("fcCornerF"), cornerB=document.getElementById("fcCornerB");'
+        + 'var pos=document.getElementById("pos"), studyCt=document.getElementById("studyCt"), knownCt=document.getElementById("knownCt");'
+        + 'var listToggle=document.getElementById("listToggle"), lists=document.getElementById("lists");'
+        + 'var knownList=document.getElementById("knownList"), unknownList=document.getElementById("unknownList");'
+        + 'function esc(s){return String(s).replace(/[&<>\"\\\']/g,function(m){return ({\"&\":\"&amp;\",\"<\":\"&lt;\",\">\":\"&gt;\",\"\\\"\":\"&quot;\",\"\\\'\":\"&#39;\"})[m];});}'
+        + 'function render(){'
+        + ' if(!deck.length){ front.textContent="No cards"; back.textContent=""; pos.textContent=""; studyCt.textContent="0"; knownCt.textContent="0"; knownList.innerHTML=""; unknownList.innerHTML=""; return; }'
+        + ' var c=deck[i]; cornerF && (cornerF.textContent = (c.page?("Slide "+c.page):"")); cornerB && (cornerB.textContent = (c.page?("Slide "+c.page):"")); cornerF.textContent = (c.page?("Slide "+c.page):""); cornerB.textContent = (c.page?("Slide "+c.page):""); front.textContent=String(c.front||""); if(c.img){ back.innerHTML="<img src=\\""+c.img+"\\" style=\\"max-width:100%;max-height:100%;object-fit:contain;display:block;margin:auto\\">"; } else { back.textContent=String(c.back||""); }'
+        + ' pos.textContent=" "+(i+1)+"/"+deck.length+(card.classList.contains("flipped")?" (back)":" (front)");'
+        + ' studyCt.textContent=study.size; knownCt.textContent=known.size;'
+        + ' var kHtml=""; known.forEach(function(idx){ var d=deck[idx]||{}; var p=d.page? " <span class=\\"meta\\">(slide "+d.page+")</span>": ""; kHtml += "<li data-i=\\""+idx+"\\">"+esc(String(d.front||""))+p+"</li>"; });'
+        + ' var unknown=[]; for(var t=0;t<deck.length;t++){ if(!known.has(t)) unknown.push(t);}'
+        + ' var uHtml=""; unknown.forEach(function(idx){ var d=deck[idx]||{}; var p=d.page? " <span class=\\"meta\\">(slide "+d.page+")</span>": ""; uHtml += "<li data-i=\\""+idx+"\\">"+esc(String(d.front||""))+p+"</li>"; });'
+        + ' knownList.innerHTML=kHtml; unknownList.innerHTML=uHtml;'
+        + ' Array.prototype.forEach.call(knownList.querySelectorAll("li"), function(li){ li.onclick=function(){ i = Number(li.dataset.i)||0; card.classList.remove("flipped"); render(); }; });'
+        + ' Array.prototype.forEach.call(unknownList.querySelectorAll("li"), function(li){ li.onclick=function(){ i = Number(li.dataset.i)||0; card.classList.remove("flipped"); render(); }; });'
+        + '}'
+        + 'document.getElementById("flip").onclick=function(){ card.classList.toggle("flipped"); render(); };'
+        + 'document.getElementById("prev").onclick=function(){ if(!deck.length) return; i=(i-1+deck.length)%deck.length; card.classList.remove("flipped"); render(); };'
+        + 'document.getElementById("next").onclick=function(){ if(!deck.length) return; i=(i+1)%deck.length; card.classList.remove("flipped"); render(); };'
+        + 'document.getElementById("markStudy").onclick=function(){ known.delete(i); study.add(i); render(); };'
+        + 'document.getElementById("markKnown").onclick=function(){ study.delete(i); known.add(i); render(); };'
+        + 'listToggle.onclick=function(){ lists.classList.toggle("open"); };'
+        + 'document.addEventListener("keydown", function(e){ var tag=(e.target.tagName||"").toLowerCase(); if(tag==="input"||tag==="textarea") return;'
+        + ' if(e.code==="Space"){ e.preventDefault(); document.getElementById("flip").click(); }'
+        + ' else if(e.key==="ArrowRight"){ e.preventDefault(); document.getElementById("next").click(); }'
+        + ' else if(e.key==="ArrowLeft"){ e.preventDefault(); document.getElementById("prev").click(); }'
+        + ' else if(e.key==="k"||e.key==="K"){ e.preventDefault(); document.getElementById("markKnown").click(); }'
+        + ' else if(e.key==="u"||e.key==="U"){ e.preventDefault(); known.delete(i); render(); }'
+        + '});'
+        + 'render();';
+      parts.push(child_js);
+      parts.push('</scr'+'ipt></body></html>');
+
+      const htmlDoc = parts.join('');
+      const blob = new Blob([htmlDoc], {type:"text/html"});
+      const url = URL.createObjectURL(blob);
+      window.open(url, "_blank");
+    }catch(e){
+      alert("Could not open flashcards in new tab.");
+    }
+  });
+})();
+</script>
+
+<script>
+(function(){
+  // ---------- State ----------
+  let tool = null; // 'highlight' | 'erase' | 'addText' | null
+  let hiColor = '#eab308'; // default yellow
+  let hiSizeMM = 2;
+  let erSizeMM = 2;
+
+  const statusEl = document.getElementById('status');
+  const viewer = document.getElementById('viewer');
+  const viewerContainer = document.getElementById('viewerContainer');
+
+  // History per page: array of ImageData snapshots (or dataURLs if needed)
+  const pageHistory = new Map(); // pageDiv -> {undo:[], redo:[]}
+  function pushHistory(pageDiv){
+    const cv = pageDiv.querySelector('canvas.ink-canvas');
+    if(!cv) return;
+    const ctx = cv.getContext('2d');
+    try{
+      const snap = ctx.getImageData(0,0,cv.width,cv.height);
+      const hist = pageHistory.get(pageDiv) || {undo:[], redo:[]};
+      hist.undo.push(snap);
+      hist.redo.length = 0;
+      if(hist.undo.length>40) hist.undo.shift();
+      pageHistory.set(pageDiv, hist); try{ saveInkForPage(pageDiv); }catch{}
+    }catch(e){
+      // Fallback: skip if tainted
+    }
+  }
+  function undoOn(pageDiv){
+    const cv = pageDiv.querySelector('canvas.ink-canvas'); if(!cv) return;
+    const ctx = cv.getContext('2d');
+    const hist = pageHistory.get(pageDiv); if(!hist || !hist.undo.length) return;
+    const snap = hist.undo.pop();
+    // Save current to redo
+    try{
+      const cur = ctx.getImageData(0,0,cv.width,cv.height);
+      hist.redo.push(cur);
+    }catch{}
+    ctx.putImageData(snap,0,0);
+  }
+  function redoOn(pageDiv){
+    const cv = pageDiv.querySelector('canvas.ink-canvas'); if(!cv) return;
+    const ctx = cv.getContext('2d');
+    const hist = pageHistory.get(pageDiv); if(!hist || !hist.redo.length) return;
+    const snap = hist.redo.pop();
+    // Save current to undo
+    try{
+      const cur = ctx.getImageData(0,0,cv.width,cv.height);
+      hist.undo.push(cur);
+    }catch{}
+    ctx.putImageData(snap,0,0);
+  }
+
+  // ---------- Utilities ----------
+  function mmToPx(mm){
+    // Approximate CSS pixel to mm: 96dpi -> 96 px/in -> 3.78 px/mm
+    return Math.max(1, Math.round(mm * 3.78));
+  }
+  function pageFromNode(n){
+    while(n && n!==document){
+      if(n.classList && n.classList.contains('page')) return n;
+      n = n.parentNode;
+    }
+    return null;
+  }
+  function getScale(pageDiv){
+    // pdf.js sets style width/height to current viewport
+    const c = pageDiv.querySelector('canvas');
+    if(!c) return 1;
+    return c.width / c.offsetWidth || 1;
+  }
+
+  // ---------- Build overlay canvases on pages ----------
+  function ensureCanvasOn(pageDiv){
+    if(pageDiv.querySelector('canvas.ink-canvas')) return;
+    const baseCanvas = pageDiv.querySelector('canvas');
+    const overlay = document.createElement('canvas');
+    overlay.className = 'ink-canvas';
+    overlay.style.zIndex = '9999';
+    overlay.style.opacity = '1';
+    overlay.style.transform = 'translateZ(0)'; overlay.style.position='absolute'; overlay.style.left='0'; overlay.style.top='0'; overlay.style.mixBlendMode='multiply';
+    overlay.width = baseCanvas ? baseCanvas.width : pageDiv.offsetWidth * window.devicePixelRatio;
+    overlay.height = baseCanvas ? baseCanvas.height : pageDiv.offsetHeight * window.devicePixelRatio;
+    overlay.style.width = (baseCanvas ? baseCanvas.offsetWidth : pageDiv.offsetWidth) + 'px';
+    overlay.style.height = (baseCanvas ? baseCanvas.offsetHeight : pageDiv.offsetHeight) + 'px';
+    pageDiv.appendChild(overlay);
+
+    // initialize history with blank
+    const ctx = overlay.getContext('2d', {alpha:true, willReadFrequently:true, desynchronized:true});
+    try{
+      const blank = ctx.getImageData(0,0,overlay.width,overlay.height);
+      pageHistory.set(pageDiv, {undo:[blank], redo:[]});
+    }catch{}
+  }
+
+  // Observe pages added
+  const mo = new MutationObserver(()=>{
+    const pages = viewer.querySelectorAll('.page');
+    pages.forEach(ensureCanvasOn);
+  });
+  mo.observe(viewer, {childList:true, subtree:true});
+
+  
+  // Ensure overlay exists on already-rendered pages
+  document.querySelectorAll('#viewer .page').forEach(pg=> ensureCanvasOn(pg));
+// On resize/zoom: adjust overlay sizes
+  let resizeTimer=null;
+  new ResizeObserver(()=>{
+    clearTimeout(resizeTimer);
+    resizeTimer = setTimeout(()=>{
+      viewer.querySelectorAll('.page').forEach(pageDiv=>{
+        const base = pageDiv.querySelector('canvas');
+        const overlay = pageDiv.querySelector('canvas.ink-canvas');
+        if(!overlay || !base) return;
+        // Save snapshot to temp
+        const ctx = overlay.getContext('2d', {alpha:true, willReadFrequently:true, desynchronized:true});
+        const img = new Image();
+        img.src = overlay.toDataURL();
+        overlay.width = base.width;
+        overlay.height = base.height;
+        overlay.style.width = base.offsetWidth+'px';
+        overlay.style.height = base.offsetHeight+'px';
+        img.onload = ()=>{ ctx.drawImage(img,0,0,overlay.width, overlay.height); };
+      });
+    }, 150);
+  }).observe(viewerContainer);
+
+  // ---------- Cursor preview ----------
+  const cursorEl = document.createElement('div');
+  cursorEl.id = 'inkCursor';
+  document.body.appendChild(cursorEl);
+
+  function showCursor(pageDiv, x, y){
+    if(!pageDiv){ cursorEl.style.display='none'; return; }
+    const rect = pageDiv.getBoundingClientRect();
+    let sizePx = mmToPx(tool === 'erase' ? erSizeMM : hiSizeMM);
+    if(tool === 'highlight'){
+      cursorEl.style.borderRadius = '2px';
+      cursorEl.style.width = (sizePx*2)+'px';
+      cursorEl.style.height = (sizePx)+'px';
+    }else if(tool === 'erase'){
+      cursorEl.style.borderRadius = '50%';
+      cursorEl.style.width = sizePx+'px';
+      cursorEl.style.height = sizePx+'px';
+    }
+    cursorEl.style.display = (tool==='highlight' || tool==='erase') ? 'block' : 'none';
+    cursorEl.style.left = (x - cursorEl.offsetWidth/2) + 'px';
+    cursorEl.style.top = (y - cursorEl.offsetHeight/2) + 'px';
+  }
+
+  // Position cursor within viewer only
+  viewerContainer.addEventListener('mousemove', (e)=>{
+    const pageDiv = pageFromNode(e.target);
+    if(!pageDiv){ cursorEl.style.display='none'; return; }
+    showCursor(pageDiv, e.clientX, e.clientY);
+  });
+  viewerContainer.addEventListener('mouseleave', ()=>{ cursorEl.style.display='none'; });
+
+  // Track last hovered page for keyboard shortcuts
+  let lastPageDiv = null;
+  viewerContainer.addEventListener('mousemove', (e)=>{ lastPageDiv = pageFromNode(e.target) || lastPageDiv; }, {passive:true});
+  viewerContainer.addEventListener('mouseleave', ()=>{ lastPageDiv = null; });
+
+
+  // ---------- Drawing handlers ----------
+  let drawing=false;
+  let lastX=0, lastY=0;
+  let lastMidX=0, lastMidY=0;
+  const MIN_DELTA=0.5;
+  let wLock=false; let drawLockY=null;
+  function getCtx(pageDiv){
+    const cv = pageDiv.querySelector('canvas.ink-canvas'); if(!cv) return null;
+    const ctx = cv.getContext('2d', {alpha:true});
+    const scale = getScale(pageDiv);
+    ctx.lineJoin = 'miter';
+    ctx.lineCap = 'butt';
+    if(tool === 'highlight'){
+      ctx.globalCompositeOperation = 'source-over';
+      const px = mmToPx(hiSizeMM) * 1.7 * scale;
+      ctx.lineWidth = Math.max(2, px);
+      ctx.lineJoin = 'miter';
+      ctx.lineCap = 'butt';
+      // Static transparent marker
+      ctx.strokeStyle = hexToRgba(hiColor, 0.6);
+    }else if(tool === 'erase'){
+      ctx.globalCompositeOperation = 'destination-out';
+      const px = mmToPx(erSizeMM) * 1.35 * 2 * scale;
+      ctx.lineWidth = Math.max(4, px);
+      ctx.strokeStyle = 'rgba(0,0,0,1)';
+    }
+    return ctx;
+  }
+  function hexToRgba(hex, a){
+    const m = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    if(!m) return 'rgba(234,179,8,.35)';
+    return `rgba(${parseInt(m[1],16)},${parseInt(m[2],16)},${parseInt(m[3],16)},${a})`;
+  }
+
+  function startDraw(e){
+    const pageDiv = pageFromNode(e.target);
+    if(!pageDiv) return;
+    const cv = pageDiv.querySelector('canvas.ink-canvas');
+    if(!cv) return;
+    // Activate pointer events
+    cv.classList.add('active');
+    // Begin history snapshot
+    pushHistory(pageDiv);
+    drawing = true;
+    const rect = cv.getBoundingClientRect();
+    lastX = (e.clientX - rect.left) * (cv.width/rect.width);
+    lastY = (e.clientY - rect.top) * (cv.height/rect.height);
+    const ctx = getCtx(pageDiv);
+    if(!ctx) return;
+    ctx.beginPath();
+    ctx.moveTo(lastX, lastY);
+    lastMidX = lastX; lastMidY = lastY;
+    // keep drawLockY as set by key handlers/start; don't reset here
+  }
+  function moveDraw(e){
+    if(!drawing) return;
+    const pageDiv = pageFromNode(e.target) || pageFromNode(e.relatedTarget);
+    if(!pageDiv) return;
+    const cv = pageDiv.querySelector('canvas.ink-canvas');
+    if(!cv) return;
+    const rect = cv.getBoundingClientRect();
+    const x = (e.clientX - rect.left) * (cv.width/rect.width);
+    let y = (e.clientY - rect.top) * (cv.height/rect.height);
+    if(tool==='highlight'){
+      if(wLock && drawLockY==null){ drawLockY = lastY; }
+      if(drawLockY!=null){ y = drawLockY; }
+    }
+    const ctx = getCtx(pageDiv);
+    if(!ctx) return;
+    const dx = Math.abs(x - lastX), dy = Math.abs(y - lastY);
+    if((dx + dy) < MIN_DELTA) return;
+    const midX = (lastX + x) / 2, midY = (lastY + y) / 2;
+    ctx.quadraticCurveTo(lastX, lastY, midX, midY);
+    ctx.stroke();
+    // Start a fresh subpath at the midpoint so previous segments aren't re-stroked
+    ctx.beginPath();
+    ctx.moveTo(midX, midY);
+    lastX = x; lastY = y;
+    lastMidX = midX; lastMidY = midY;
+  }
+  function endDraw(e){
+    if(!drawing) return;
+    drawing = false;
+    drawLockY = null;
+    const pageDiv = pageFromNode(e.target);
+    if(!pageDiv) return;
+    const cv = pageDiv.querySelector('canvas.ink-canvas');
+    if(cv) cv.classList.remove('active');
+  }
+
+  viewerContainer.addEventListener('mousedown', (e)=>{
+  const box = e.target && e.target.closest && e.target.closest('.ink-textbox');
+
+  if(box){
+    e.preventDefault();
+    document.querySelectorAll('.ink-textbox.selected').forEach(b=>b.classList.remove('selected'));
+    box.classList.add('selected');
+    dragBox = box;
+    dragStart = {x:e.clientX, y:e.clientY, left: box.offsetLeft, top: box.offsetTop};
+    document.body.classList.add('ink-dragging');
+    return;
+  }
+  if(tool==='highlight' || tool==='erase'){
+      if(e.target && e.target.closest && e.target.closest('.ink-textbox')) return;
+      e.preventDefault(); startDraw(e); return;
+    }else if(tool==='addText'){
+      // Don't create if clicking an existing textbox
+      if(e.target && e.target.closest && e.target.closest('.ink-textbox')){ return; }
+
+      const pageDiv = pageFromNode(e.target);
+      if(!pageDiv) return;
+      addTextBoxAt(pageDiv, e);
+      // Exit addText mode after one box to avoid spawning while dragging
+      setTool(null);
+    }
+  });
+  viewerContainer.addEventListener('mousemove', moveDraw);
+  window.addEventListener('mouseup', endDraw);
+
+  
+  // ---------- Tool shortcuts (viewer-only) ----------
+  function isTypingContext(){
+    const ae = document.activeElement;
+    if(!ae) return false;
+    if(ae.tagName==='INPUT' || ae.tagName==='TEXTAREA') return true;
+    if(ae.isContentEditable) return true;
+    if(ae.closest && ae.closest('.ink-textbox.editing')) return true;
+    return false;
+  }
+  document.addEventListener('keydown', (e)=>{
+    if(!viewerHasFocus(e)) return;
+    if(isTypingContext()) return;
+    if(e.key==='h' || e.key==='H'){ setTool('highlight'); e.preventDefault(); }
+    else if(e.key==='e' || e.key==='E'){ setTool('erase'); e.preventDefault(); }
+    else if(e.key==='t' || e.key==='T'){ setTool('addText'); e.preventDefault(); }
+    else if(e.key==='Escape'){ setTool(null); }
+  });
+// ---------- Undo / Redo (viewer-only) ----------
+// ---------- Undo / Redo (viewer-only) ----------
+  function viewerHasFocus(e){ try{ const r=document.getElementById('viewerContainer').getBoundingClientRect(); const x=(e&&(e.clientX||e.pageX))||0; const y=(e&&(e.clientY||e.pageY))||0; return x>=r.left && x<=r.right && y>=r.top && y<=r.bottom; }catch(err){ return false; } }
+  document.addEventListener('keydown', (e)=>{
+    try{ const r=document.getElementById('viewerContainer').getBoundingClientRect(); const x=e.clientX||0, y=e.clientY||0; if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom){ if(e.key==='Escape'){ setTool(null); } } }catch{}
+    // Only when viewer is in focus region
+    if(!viewerHasFocus(e)) return;
+    if((e.ctrlKey || e.metaKey) && !e.shiftKey && (e.key==='z' || e.key==='Z')){
+      e.preventDefault();
+      // Undo on current page under cursor if any; else all pages
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const pageDiv = pageFromNode(el);
+      if(pageDiv) undoOn(pageDiv);
+      return;
+    }
+    if(((e.ctrlKey || e.metaKey) && (e.key==='y' || e.key==='Y')) || ((e.ctrlKey || e.metaKey) && e.key==='a')){
+      // Ctrl+Y redo; also allow Ctrl+A as requested
+      e.preventDefault();
+      const el = document.elementFromPoint(e.clientX, e.clientY);
+      const pageDiv = pageFromNode(el);
+      if(pageDiv) redoOn(pageDiv);
+      return;
+    }
+  });
+
+  // Horizontal-lock: hold 'W' while highlighting
+  window.addEventListener('keydown', (e)=>{
+    if(e.key==='w' || e.key==='W'){
+      if(!wLock){ wLock = true; if(drawing && tool==='highlight'){ drawLockY = lastY; } }
+    }
+  }, {capture:true});
+  window.addEventListener('keyup', (e)=>{
+    if(e.key==='w' || e.key==='W'){
+      wLock = false; drawLockY = null;
+    }
+  }, {capture:true});
+
+  
+  // Ctrl+Z undo / Ctrl+A redo for ink (highlight/erase) in viewer
+  document.addEventListener('keydown', (e)=>{
+    try{ const r=document.getElementById('viewerContainer').getBoundingClientRect(); const x=e.clientX||0, y=e.clientY||0; if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom){ if(e.key==='Escape'){ setTool(null); } } }catch{}
+    const key = (e.key||'').toLowerCase();
+    if(!(e.ctrlKey || e.metaKey)) return;
+    if(key==='z' || key==='a'){
+      // Only act when viewer is likely in focus (mouse was in it recently)
+      const pageDiv = lastPageDiv || viewer.querySelector('.page');
+      if(!pageDiv) return;
+      e.preventDefault();
+      if(key==='z'){ undoOn(pageDiv); }
+      else if(key==='a'){ redoOn(pageDiv); }
+    }
+  });
+
+  // ---------- Text boxes ----------
+  function caretToEnd(el){
+    const r = document.createRange();
+    const s = window.getSelection();
+    r.selectNodeContents(el);
+    r.collapse(false);
+    s.removeAllRanges();
+    s.addRange(r);
+  }
+  function addTextBoxAt(pageDiv, e){
+    const overlay = pageDiv.querySelector('canvas.ink-canvas');
+    const rect = overlay.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+
+    const box = document.createElement('div');
+    box.className = 'ink-textbox';
+    box.contentEditable = 'true';
+    box.style.left = Math.max(0, x - 40) + 'px';
+    box.style.top = Math.max(0, y - 14) + 'px';
+    box.dataset.role = 'textbox';
+    pageDiv.appendChild(box);
+    selectBox(box);
+    caretToEnd(box);
+  }
+  function selectBox(box){
+    document.querySelectorAll('.ink-textbox.selected').forEach(b=>b.classList.remove('selected'));
+    box.classList.add('selected');
+  }
+  function removeSelectedBox(){
+    const sel = document.querySelector('.ink-textbox.selected');
+    if(sel){
+      const parent = sel.parentNode;
+      parent.removeChild(sel);
+    }
+  }
+
+  // Dragging
+  let dragBox=null, dragStart=null;
+  viewerContainer.addEventListener('mousedown', (e)=>{
+    const t = e.target;
+    if(t && t.classList && t.classList.contains('ink-textbox')){
+      // Single click selects, enables drag
+      if(!t.classList.contains('editing')){
+        selectBox(t);
+        dragBox = t;
+        dragStart = {x:e.clientX, y:e.clientY, left: t.offsetLeft, top: t.offsetTop};
+        document.body.classList.add('ink-dragging');
+        e.preventDefault();
+      }
+    }
+  });
+  document.addEventListener('mousemove', (e)=>{
+    if(!dragBox) return;
+    const dx = e.clientX - dragStart.x;
+    const dy = e.clientY - dragStart.y;
+    dragBox.style.left = (dragStart.left + dx) + 'px';
+    dragBox.style.top  = (dragStart.top + dy) + 'px';
+  });
+  document.addEventListener('mouseup', ()=>{
+    if(dragBox){
+      dragBox = null;
+      document.body.classList.remove('ink-dragging');
+    }
+  });
+
+  // Double-click to edit, place caret at end
+  viewerContainer.addEventListener('dblclick', (e)=>{
+    const t = e.target;
+    if(t && t.classList && t.classList.contains('ink-textbox')){
+      t.classList.add('editing');
+      t.focus();
+      caretToEnd(t);
+    }
+  });
+  // Clicking elsewhere exits editing
+  viewerContainer.addEventListener('click', (e)=>{
+    const t = e.target;
+    if(t && t.classList && t.classList.contains('ink-textbox')){
+      selectBox(t);
+    }else{
+      document.querySelectorAll('.ink-textbox.selected').forEach(b=>b.classList.remove('selected'));
+    }
+  });
+  // Delete selected with Backspace/Delete
+  document.addEventListener('keydown', (e)=>{
+    try{ const r=document.getElementById('viewerContainer').getBoundingClientRect(); const x=e.clientX||0, y=e.clientY||0; if(x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom){ if(e.key==='Escape'){ setTool(null); } } }catch{}
+    const sel = document.querySelector('.ink-textbox.selected');
+    if(!sel) return;
+    const ae = document.activeElement;
+    const editing = ae && (ae.isContentEditable || ae.tagName==='INPUT' || ae.tagName==='TEXTAREA');
+    if(editing) return; // don't delete while editing text box
+    if(e.key === 'Backspace' || e.key === 'Delete'){
+      e.preventDefault();
+      removeSelectedBox();
+    }
+  });
+  // Exit editing on Enter (keep newline prevention)
+  viewerContainer.addEventListener('keydown', (e)=>{
+    const t = e.target;
+    if(t && t.classList && t.classList.contains('ink-textbox')){
+      if(e.key==='Enter'){
+        e.preventDefault();
+        t.blur();
+        t.classList.remove('editing');
+      }
+    }
+  });
+
+  // ---------- Menus & Buttons ----------
+  const btnHighlighter = document.getElementById('btnHighlighter');
+  const btnEraser = document.getElementById('btnEraser');
+  const btnAddText = document.getElementById('btnAddText');
+  const btnHighlighterMenu = document.getElementById('btnHighlighterMenu');
+  const btnEraserMenu = document.getElementById('btnEraserMenu');
+  const menuHighlighter = document.getElementById('menuHighlighter');
+  const menuEraser = document.getElementById('menuEraser');
+
+  
+// Enhance swatch visuals (sizes & colors)
+function refreshMenus(){
+  // Highlighter sizes as rectangles: height = mm -> px; width fixed
+  menuHighlighter.querySelectorAll('.swatch.rect').forEach(el=>{
+    const mm = parseInt(el.getAttribute('data-size-mm')||'2',10);
+    const px = mmToPx(mm) * 1.35;
+    el.style.height = Math.max(6, px*2) + 'px';
+    el.style.width = (Math.max(14, px*4)) + 'px';
+  });
+  // Eraser sizes as circles: diameter = mm -> px
+  menuEraser.querySelectorAll('.swatch.circle').forEach(el=>{
+    const mm = parseInt(el.getAttribute('data-size-mm')||'2',10);
+    const d = mmToPx(mm) * 1.35;
+    el.style.width = d + 'px';
+    el.style.height = d + 'px';
+  });
+  // Colors
+  menuHighlighter.querySelectorAll('.color').forEach(el=>{
+    el.style.backgroundColor = el.getAttribute('data-color') || '#eab308';
+  });
+}
+function setTool(t){
+    tool = t;
+    [btnHighlighter, btnEraser, btnAddText].forEach(b=>b.classList.remove('active'));
+    if(t==='highlight') btnHighlighter.classList.add('active');
+    if(t==='erase') btnEraser.classList.add('active');
+    if(t==='addText') btnAddText.classList.add('active');
+    // Cursor preview
+    cursorEl.style.display = (t==='highlight'||t==='erase') ? 'block' : 'none';
+  }
+  btnHighlighter.addEventListener('click', ()=>{
+    setTool(tool==='highlight'? null : 'highlight');
+    if(tool==='highlight') openMenu(menuHighlighter, btnHighlighter);
+    else closeMenus();
+  });
+  btnEraser.addEventListener('click', ()=>{
+    setTool(tool==='erase'? null : 'erase');
+    if(tool==='erase') openMenu(menuEraser, btnEraser);
+    else closeMenus();
+  });
+  btnAddText.addEventListener('click', ()=>{
+    setTool(tool==='addText'? null : 'addText');
+    closeMenus();
+  });
+
+  function openMenu(menu, anchor){
+    closeMenus();
+    const r = anchor.getBoundingClientRect();
+    menu.style.left = '0px';
+    menu.style.top = '115%';
+    menu.hidden = false;
+    refreshMenus();
+    // keep within viewport (optional improvements skipped for brevity)
+    menu.dataset.anchor = '1';
+    document.addEventListener('click', onDocClickOnce, {capture:true, once:true});
+    function onDocClickOnce(ev){
+      if(menu.contains(ev.target) || anchor.contains(ev.target)) return;
+      closeMenus();
+    }
+  }
+  function closeMenus(){
+    [menuHighlighter, menuEraser].forEach(m=>{ if(m) m.hidden = true; });
+  }
+
+  menuHighlighter.addEventListener('click', (e)=>{
+    const t = e.target;
+    if(t.classList.contains('swatch')){
+      hiSizeMM = parseInt(t.dataset.sizeMm || t.getAttribute('data-size-mm') || '2', 10);
+      setTool('highlight');
+    }
+    if(t.classList.contains('color')){
+      hiColor = t.getAttribute('data-color') || hiColor;
+      setTool('highlight');
+    }
+  });
+  menuEraser.addEventListener('click', (e)=>{
+    const t = e.target;
+    if(t.classList.contains('swatch')){
+      erSizeMM = parseInt(t.dataset.sizeMm || t.getAttribute('data-size-mm') || '2', 10);
+      setTool('erase');
+    }
+  });
+
+  // Initial tool: none
+  setTool(null);
+
+
+    // Toggle overlay interactivity
+    document.querySelectorAll('#viewer .page canvas.ink-canvas').forEach(cv=> cv.classList.toggle('active', t==='highlight'||t==='erase'));
+  })(); 
+</script>
+
+<!-- === Download Preview v2 + Reliable Export via pdf.js (non-invasive) === -->
+<style>
+#dlPreviewModal{position:fixed;inset:0;display:none;background:rgba(0,0,0,.45);backdrop-filter:saturate(140%) blur(2px);z-index:9999;}
+#dlPreviewModal .dl-box{position:absolute;inset:5% 6%;background:#0f172a;color:#e5e7eb;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.5);display:flex;overflow:hidden;border:1px solid rgba(99,102,241,.25);}
+#dlPreviewModal .dl-left{width:300px;min-width:260px;max-width:340px;background:#0b1220;border-right:1px solid rgba(99,102,241,.25);display:flex;flex-direction:column}
+#dlPreviewModal .dl-left h3{margin:12px 12px 8px;font:600 15px/1.2 ui-sans-serif,system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#c7d2fe}
+#dlPreviewModal .dl-thumbs{overflow:auto;padding:8px;display:grid;grid-template-columns:1fr;gap:10px}
+#dlPreviewModal .thumb{position:relative;border-radius:10px;border:2px solid transparent;overflow:hidden;background:#111827;cursor:pointer;min-height:120px;display:flex;align-items:center;justify-content:center}
+#dlPreviewModal .thumb.skeleton::after{content:"";width:85%;height:85%;border-radius:6px;background:linear-gradient(90deg,#0f172a,#111827,#0f172a);animation:dlShimmer 1.4s infinite}
+@keyframes dlShimmer{0%{filter:brightness(1)}50%{filter:brightness(1.3)}100%{filter:brightness(1)}}
+#dlPreviewModal .thumb.selected{border-color:#60a5fa;box-shadow:0 0 0 3px rgba(59,130,246,.35) inset}
+#dlPreviewModal .thumb img{display:block;width:100%;height:auto;background:#fff}
+#dlPreviewModal .thumb .pg{position:absolute;left:8px;top:8px;background:rgba(17,24,39,.7);color:#e5e7eb;padding:2px 6px;border-radius:999px;font:600 12px/1 ui-sans-serif}
+#dlPreviewModal .dl-right{flex:1;display:flex;flex-direction:column;min-width:0}
+#dlPreviewModal .dl-head{display:flex;align-items:center;gap:8px;padding:12px;border-bottom:1px solid rgba(99,102,241,.25);background:#0b1220;flex-wrap:wrap}
+#dlPreviewModal .dl-head .grow{flex:1}
+#dlPreviewModal .dl-head input[type=text]{width:360px;max-width:60%;background:#0f172a;border:1px solid rgba(148,163,184,.3);color:#e5e7eb;border-radius:10px;padding:8px 10px;outline:none}
+#dlPreviewModal .dl-head button{background:#1d4ed8;color:#fff;border:0;border-radius:10px;padding:8px 12px;font:600 13px/1 ui-sans-serif;cursor:pointer}
+#dlPreviewModal .dl-head button.ghost{background:transparent;color:#c7d2fe;border:1px solid rgba(99,102,241,.35)}
+#dlPreviewModal .dl-body{position:relative;flex:1;display:flex;align-items:center;justify-content:center;background:#0b1220}
+#dlPreviewModal .dl-body .preview{max-width:95%;max-height:95%;box-shadow:0 10px 30px rgba(0,0,0,.45);border-radius:12px;background:#fff}
+#dlPreviewModal .dl-foot{display:flex;gap:8px;justify-content:flex-end;padding:12px;border-top:1px solid rgba(99,102,241,.25);background:#0b1220}
+#dlPreviewModal .dl-foot .danger{background:#ef4444}
+</style>
+<script>
+(function(){
+  // Ensure button exists
+  try{
+    var tools = document.querySelector('.header .tools') || document.querySelector('.tools');
+    if(tools && !document.getElementById('downloadPdf')){
+      var btn = document.createElement('button');
+      btn.className = 'btn';
+      btn.id = 'downloadPdf';
+      btn.textContent = '⬇️ Download PDF';
+      tools.appendChild(btn);
+    }
+  }catch(e){}
+
+  // Modal skeleton
+  function ensureModal(){
+    if(document.getElementById('dlPreviewModal')) return;
+    var wrap = document.createElement('div');
+    wrap.id = 'dlPreviewModal';
+    wrap.innerHTML = `
+      <div class="dl-box" role="dialog" aria-modal="true" aria-label="Export PDF">
+        <div class="dl-left">
+          <h3>Pages</h3>
+          <div class="dl-thumbs" id="dlThumbs"></div>
+        </div>
+        <div class="dl-right">
+          <div class="dl-head">
+            <div class="grow"></div>
+            <label>Pages:&nbsp;<input type="text" id="dlPagesInput" placeholder="e.g., 1,3,5-8"></label>
+            <button class="ghost" id="dlSelectAll">Select all</button>
+            <button class="ghost" id="dlClear">Clear</button>
+            <button class="ghost primary" id="dlExport">Export selected</button>
+            <button class="ghost" id="dlCancel">Cancel</button>
+          </div>
+          <div class="dl-body">
+            <img id="dlPreviewImg" class="preview" alt="preview" />
+          </div>
+          <div class="dl-foot"></div>
+        </div>
+      </div>`;
+    document.body.appendChild(wrap);
+  }
+
+  // Helpers
+  async function __loadJS(urls){
+    if (typeof loadJS === 'function') { return loadJS(urls); }
+    return new Promise((resolve)=>{
+      let i=0;
+      const next=()=>{
+        if(i>=urls.length) { resolve(false); return; }
+        const s=document.createElement('script');
+        s.src=urls[i++];
+        s.onload=()=>resolve(true);
+        s.onerror=next;
+        document.head.appendChild(s);
+      };
+      next();
+    });
+  }
+
+  async function ensureHtml2Canvas(){
+    if (window.html2canvas) return true;
+    return __loadJS([
+      "https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js",
+      "https://unpkg.com/html2canvas@1.4.1/dist/html2canvas.min.js"
+    ]).then(()=> !!window.html2canvas);
+  }
+
+  function ensurePdfDocFromViewer(){
+    try{
+      var pva = window.PDFViewerApplication || window.PDFViewerApplicationForTesting;
+      if(pva && pva.pdfDocument){
+        window.pdfDoc = pva.pdfDocument;
+        if(!window.__loadedPdfName){
+          var candidate = pva._downloadUrl || pva.url || pva.baseUrl || (pva.appConfig && pva.appConfig.defaultUrl) || '';
+          if(candidate){
+            var u = String(candidate).split('?')[0].split('#')[0];
+            window.__loadedPdfName = decodeURIComponent(u.substring(u.lastIndexOf('/')+1) || 'PDF');
+          }
+        }
+        return true;
+      }
+    }catch(_e){}
+    return !!(window.pdfDoc && window.pdfDoc.numPages);
+  
+  // Fallback: use locally loaded pdfDoc if viewer app isn't present
+  try{
+    if (!window.pdfDoc && typeof pdfDoc !== 'undefined' && pdfDoc && pdfDoc.getPage) {
+      window.pdfDoc = pdfDoc; // pdfDocFallbackApplied
+      return true;
+    }
+  }catch(_e){}
+}
+
+
+  function getPageEl(n){
+    return document.querySelector('.page[data-page-number="'+n+'"]') ||
+           document.querySelector('#viewer .page[data-page-number="'+n+'"]') ||
+           document.querySelector('.pdfViewer .page[data-page-number="'+n+'"]');
+  }
+
+  function countPages(){
+    if(ensurePdfDocFromViewer() && window.pdfDoc && window.pdfDoc.numPages) return window.pdfDoc.numPages;
+    var q = document.querySelectorAll('.page[data-page-number]'); if(q.length) return q.length;
+    return 0;
+  }
+
+  function fillWhite(ctx, w, h){ ctx.save(); ctx.fillStyle='#ffffff'; ctx.fillRect(0,0,w,h); ctx.restore(); }
+
+  // === Base renderer: pdf.js 'print' intent (fixes blank exports) ===
+  async function renderBaseWithPdfJs(n, scale){
+    ensurePdfDocFromViewer();
+    var __doc = (window.pdfDoc || (typeof pdfDoc !== 'undefined' ? pdfDoc : null));
+    if(!__doc || !__doc.getPage) return null;
+    try{
+      var page = await __doc.getPage(n);
+      var viewport = page.getViewport({ scale: scale||2 });
+      var cv = document.createElement('canvas');
+      cv.width = Math.max(2, Math.round(viewport.width));
+      cv.height = Math.max(2, Math.round(viewport.height));
+      var ctx = cv.getContext('2d', { alpha:false });
+      fillWhite(ctx, cv.width, cv.height);
+      await page.render({ canvasContext: ctx, viewport: viewport, intent:'print' }).promise;
+      return cv;
+    }catch(e){
+      return null;
+    }
+  }
+
+  // Overlay helpers (ink, highlights, text boxes)
+  function drawHighlightsForPage(ctx, pageW, pageH, pageNum){
+    try{
+      var list = (Array.isArray(window.cards) ? window.cards : []);
+      for(var i=0;i<list.length;i++){
+        var c = list[i];
+        if(!c || Number(c.page)!==Number(pageNum) || !Array.isArray(c.rects)) continue;
+        for(var j=0;j<c.rects.length;j++){
+          var r = c.rects[j]; if(!r) continue;
+          var x=r.x*pageW, y=r.y*pageH, w=r.w*pageW, h=r.h*pageH;
+          ctx.save();
+          ctx.fillStyle = 'rgba(255,219,77,0.28)';
+          ctx.strokeStyle = 'rgba(255,219,77,0.75)';
+          ctx.lineWidth = Math.max(1, Math.round(Math.min(pageW,pageH)*0.002));
+          ctx.beginPath(); ctx.rect(x, y, w, h); ctx.fill(); ctx.stroke();
+          ctx.restore();
+        }
+      }
+    }catch(e){}
+  }
+
+  function drawTextboxesForPage(ctx, pageEl, pageW, pageH){
+    try{
+      if(!pageEl) return;
+      var boxes = pageEl.querySelectorAll('.ink-textbox');
+      if(!boxes || !boxes.length) return;
+      var pageRect = pageEl.getBoundingClientRect();
+      var scaleX = pageW / pageRect.width;
+      var scaleY = pageH / pageRect.height;
+      boxes.forEach(function(bx){
+        var br = bx.getBoundingClientRect();
+        var x = (br.left - pageRect.left) * scaleX;
+        var y = (br.top  - pageRect.top ) * scaleY;
+        var w = br.width  * scaleX;
+        var h = br.height * scaleY;
+        var text = (bx.innerText || '').trim();
+        var cs = window.getComputedStyle(bx);
+        var fs = parseInt(cs.fontSize || '14', 10) || 14;
+        var ff = (cs.fontFamily || 'system-ui,Segoe UI,Roboto,Helvetica,Arial,sans-serif');
+        ctx.save();
+        ctx.strokeStyle = 'rgba(96,165,250,0.9)'; ctx.lineWidth = 2; ctx.strokeRect(x, y, w, h);
+        ctx.fillStyle = '#0b1220'; ctx.font = fs + 'px ' + ff;
+        var maxW = Math.max(10, w - 8);
+        var words = text.split(/\s+/); var line = '', lh = Math.round(fs * 1.3), yy = y + fs + 4;
+        for(var i=0;i<words.length;i++){
+          var test = line ? (line + ' ' + words[i]) : words[i];
+          if (ctx.measureText(test).width > maxW && line){ ctx.fillText(line, x+4, yy); line = words[i]; yy += lh; }
+          else { line = test; }
+        }
+        if(line){ ctx.fillText(line, x+4, yy); }
+        ctx.restore();
+      });
+    }catch(e){}
+  }
+
+  // Full raster for export/preview
+  async function rasterizePage(n, previewScale){
+    var pageEl = getPageEl(n);
+    var base = await renderBaseWithPdfJs(n, previewScale || 2);
+    if(!base){
+      // fall back to DOM snapshot if pdf.js unavailable
+      if(pageEl){ 
+        await ensureHtml2Canvas();
+        base = await html2canvas(pageEl, {backgroundColor:'#ffffff', useCORS:true, scale: Math.max(2, Math.floor(window.devicePixelRatio||2))});
+      } else {
+        base = document.createElement('canvas'); base.width=1240; base.height=1754; fillWhite(base.getContext('2d'), base.width, base.height);
+      }
+    }
+    var ctx = base.getContext('2d');
+    // Ink overlay from DOM (scaled)
+    if(pageEl){
+      var ink = pageEl.querySelector('canvas.ink-canvas');
+      if(ink && ink.width && ink.height){ ctx.drawImage(ink, 0, 0, base.width, base.height); }
+    }
+    // Highlights + text boxes from model/DOM
+    drawHighlightsForPage(ctx, base.width, base.height, n);
+    drawTextboxesForPage(ctx, pageEl, base.width, base.height);
+    return base;
+  }
+
+  // === Thumbnails (lazy render: only 4 immediately, others on scroll) ===
+  var __observer = null;
+  function setupThumbObserver(){
+    if(__observer) return;
+    __observer = new IntersectionObserver(async (entries)=>{
+      for(const e of entries){
+        if(!e.isIntersecting) continue;
+        const box = e.target;
+        const n = +box.dataset.p;
+        if(box.dataset.done) continue;
+        box.dataset.done = "1";
+        try{
+          const cv = await rasterizePage(n, 1.2);
+          const w = 220, scale = w / cv.width, h = Math.round(cv.height * scale);
+          const th = document.createElement('canvas'); th.width=w; th.height=h;
+          const tctx = th.getContext('2d'); fillWhite(tctx, w, h); tctx.drawImage(cv,0,0,w,h);
+          box.classList.remove('skeleton');
+          const img = document.createElement('img'); img.src = th.toDataURL('image/png');
+          box.innerHTML = `<span class="pg">${n}</span>`; box.appendChild(img);
+        }catch(_e){ /* keep skeleton */ }
+      }
+    }, {root: document.getElementById('dlThumbs'), rootMargin: '50px', threshold: 0.01});
+  }
+
+  async function buildThumbs(total){
+    const thumbs = document.getElementById('dlThumbs');
+    thumbs.innerHTML = '';
+    setupThumbObserver();
+    for(let n=1;n<=total;n++){
+      const box = document.createElement('div');
+      box.className = 'thumb skeleton'; box.dataset.p = n;
+      box.innerHTML = `<span class="pg">${n}</span>`;
+      box.addEventListener('click', ()=> toggle(n, true));
+      thumbs.appendChild(box);
+      __observer.observe(box);
+    }
+  }
+
+  // ---- Selection & preview ----
+  var __selection = new Set();
+  var __focus = null;
+  // Keyboard nav: ArrowUp/ArrowDown within preview modal
+  (function(){
+    const modal = document.getElementById('dlPreviewModal');
+    function onKey(e){
+      if(!modal || modal.style.display!=='block') return;
+      if(e.key==='ArrowDown' || e.key==='PageDown'){
+        e.preventDefault();
+        var next = Math.min((__focus||1)+1, total);
+        setFocus(next);
+        // scroll into view
+        var t = document.querySelector('#dlThumbs .thumb[data-p="'+next+'"]');
+        if(t) t.scrollIntoView({block:'nearest'});
+      }else if(e.key==='ArrowUp' || e.key==='PageUp'){
+        e.preventDefault();
+        var prev = Math.max((__focus||1)-1, 1);
+        setFocus(prev);
+        var t2 = document.querySelector('#dlThumbs .thumb[data-p="'+prev+'"]');
+        if(t2) t2.scrollIntoView({block:'nearest'});
+      }
+    }
+    window.addEventListener('keydown', onKey);
+  })();
+
+  function markThumb(n,on){ var t=document.querySelector('#dlThumbs .thumb[data-p="'+n+'"]'); if(t) t.classList.toggle('selected', !!on); }
+  function setFocus(n){ __focus = n; renderPreview(n); }
+  function select(n,focusToo){
+    __selection.add(n); markThumb(n,true);
+    if(focusToo) setFocus(n);
+    syncInput();
+  }
+  function deselect(n){ __selection.delete(n); markThumb(n,false); syncInput(); }
+  function toggle(n,focusToo){ (__selection.has(n)?deselect:select)(n,focusToo); if(focusToo) setFocus(n); }
+  function clearSel(){ __selection.clear(); document.querySelectorAll('#dlThumbs .thumb.selected').forEach(e=>e.classList.remove('selected')); syncInput(); }
+  function selectAll(total){ __selection = new Set(Array.from({length: total}, (_,i)=>i+1)); document.querySelectorAll('#dlThumbs .thumb').forEach(e=>e.classList.add('selected')); syncInput(); }
+  function syncInput(){
+    var arr = Array.from(__selection).sort((a,b)=>a-b);
+    var out = [];
+    for(let i=0;i<arr.length;i++){ let s=arr[i], e=s; while(i+1<arr.length && arr[i+1]==e+1){ e=arr[++i]; } out.push(s==e?String(s):s+"-"+e); }
+    var inp = document.getElementById('dlPagesInput'); if(inp) inp.value = out.join(',');
+  }
+  function parseInput(str, max){
+    var s = String(str||'').replace(/\s+/g,'');
+    if(!s) return new Set();
+    var parts = s.split(','), out = new Set();
+    for(const p of parts){
+      if(!p) continue;
+      if(/^\d+$/.test(p)){ const n=+p; if(n>=1 && n<=max) out.add(n); continue; }
+      var m = p.match(/^(\d+)-(\d+)$/); if(m){ let a=+m[1], b=+m[2]; if(a>b) [a,b]=[b,a]; for(let n=a;n<=b;n++){ if(n>=1 && n<=max) out.add(n);} }
+    }
+    return out;
+  }
+
+  async function renderPreview(n){
+    if(!n) { document.getElementById('dlPreviewImg').src=''; return; }
+    try{
+      const cv = await rasterizePage(n, 1.8);
+      document.getElementById('dlPreviewImg').src = cv.toDataURL('image/png');
+    }catch(e){
+      document.getElementById('dlPreviewImg').removeAttribute('src');
+    }
+  }
+
+  // === Export ===
+  async function ensurePdfLib(){
+    if (window.PDFLib && PDFLib.PDFDocument) return true;
+    return __loadJS([
+      "https://cdn.jsdelivr.net/npm/pdf-lib@1.17.1/dist/pdf-lib.min.js",
+      "https://unpkg.com/pdf-lib@1.17.1/dist/pdf-lib.min.js"
+    ]).then(()=> !!(window.PDFLib && PDFLib.PDFDocument));
+  }
+
+  async function exportAnnotatedPdf(selectedPages){
+    var total = countPages(); if(!total){ alert('Load a PDF first.'); return; }
+    if(!selectedPages || !selectedPages.size){ selectedPages = new Set(Array.from({length:total},(_,i)=>i+1)); }
+    var ok = await ensurePdfLib(); if(!ok){ alert('Could not load PDF exporter'); return; }
+    var doc = await PDFLib.PDFDocument.create();
+    var arr = Array.from(selectedPages).sort((a,b)=>a-b);
+    for (const n of arr){
+      var canvas = await rasterizePage(n, 2.0);
+      if(!canvas || !canvas.width || !canvas.height) continue;
+      var img = await doc.embedPng(canvas.toDataURL('image/png'));
+      var page = doc.addPage([canvas.width, canvas.height]);
+      page.drawImage(img, {x:0, y:0, width:canvas.width, height:canvas.height});
+    }
+    var bytes = await doc.save();
+    var blob = new Blob([bytes], {type:'application/pdf'});
+    var a = document.createElement('a');
+    var base = (window.__loadedPdfName||'annotated').replace(/\.pdf$/i,'') + ' — annotated.pdf';
+    a.download = base;
+    a.href = URL.createObjectURL(blob);
+    document.body.appendChild(a); a.click(); a.remove(); URL.revokeObjectURL(a.href);
+  }
+
+  // Open modal & wire events
+  async function openPreview(){
+    ensureModal();
+    var modal = document.getElementById('dlPreviewModal');
+    var input = document.getElementById('dlPagesInput');
+    var btnAll = document.getElementById('dlSelectAll');
+    var btnClr = document.getElementById('dlClear');
+
+    // Header actions
+    (function(){
+      var btnExp = document.getElementById('dlExport');
+      var btnCan = document.getElementById('dlCancel');
+      if(btnExp){ /* fixed: handled below */ }
+      if(btnCan){ btnCan.addEventListener('click', ()=>{ try{ document.getElementById('dlPreviewModal').style.display = 'none'; }catch{} }); }
+    })();
+        var btnCan = document.getElementById('dlCancel');
+    var btnExp = document.getElementById('dlExport');
+
+    modal.style.display = 'block';
+    // Keyboard navigation while modal is open
+    (function(){
+      function onKey(e){
+        if(e.key==='ArrowDown' || e.key==='PageDown'){
+          e.preventDefault();
+          var next = Math.min((__focus||1)+1, total);
+          setFocus(next);
+          var t = document.querySelector('#dlThumbs .thumb[data-p="'+next+'"]');
+          if(t) t.scrollIntoView({block:'nearest'});
+        }else if(e.key==='ArrowUp' || e.key==='PageUp'){
+          e.preventDefault();
+          var prev = Math.max((__focus||1)-1, 1);
+          setFocus(prev);
+          var t2 = document.querySelector('#dlThumbs .thumb[data-p="'+prev+'"]');
+          if(t2) t2.scrollIntoView({block:'nearest'});
+        }
+      }
+      // remove old, then add
+      if(modal.__nav){ window.removeEventListener('keydown', modal.__nav); }
+      modal.__nav = onKey;
+      window.addEventListener('keydown', onKey);
+      // cleanup on close
+      function cleanup(){ window.removeEventListener('keydown', onKey); modal.__nav=null; }
+      btnCan.addEventListener('click', cleanup, {once:true});
+      btnExp.addEventListener('click', cleanup, {once:true});
+      modal.addEventListener('click', function(e){ if(e.target===modal){ cleanup(); } });
+    })();
+
+    var total = countPages();
+    __selection = new Set(); __focus = null;
+    await buildThumbs(total);
+
+    // Init: render first 4 thumbs immediately (observer will do, but ensure quick load)
+    const first4 = Array.from(document.querySelectorAll('#dlThumbs .thumb')).slice(0,4);
+    for (const box of first4){ if(!box.dataset.done){ const n=+box.dataset.p; try{ const cv=await rasterizePage(n,1.2); const w=220, s=w/cv.width, h=Math.round(cv.height*s); const th=document.createElement('canvas'); th.width=w; th.height=h; const tctx=th.getContext('2d'); fillWhite(tctx,w,h); tctx.drawImage(cv,0,0,w,h); box.classList.remove('skeleton'); const img = document.createElement('img'); img.src = th.toDataURL('image/png'); box.innerHTML = `<span class="pg">${n}</span>`; box.appendChild(img); box.dataset.done="1"; }catch(_e){} } }
+
+    btnAll.onclick = ()=> selectAll(total);
+    btnClr.onclick = ()=> clearSel();
+    btnCan.onclick = ()=> { modal.style.display='none'; };
+
+    input.addEventListener('change', ()=>{
+      const set = parseInput(input.value, total);
+      // update selection state
+      __selection = set;
+      document.querySelectorAll('#dlThumbs .thumb').forEach(e=> e.classList.toggle('selected', __selection.has(+e.dataset.p)));
+      // set focus to first in set (also update preview)
+      const first = Array.from(set).sort((a,b)=>a-b)[0];
+      if(first){ setFocus(first); }
+    });
+
+    btnExp.onclick = async ()=>{ modal.style.display='none'; await exportAnnotatedPdf(__selection); };
+
+    // esc to close
+    const esc = (e)=>{ if(e.key==='Escape'){ modal.style.display='none'; window.removeEventListener('keydown', esc);} };
+    window.addEventListener('keydown', esc);
+    // click backdrop to close
+    modal.addEventListener('click', (e)=>{ if(e.target===modal){ modal.style.display='none'; }}, {once:true});
+  }
+
+  document.addEventListener('click', function(e){
+    var b = e.target && e.target.closest && e.target.closest('#downloadPdf');
+    if(!b) return;
+    e.preventDefault();
+    openPreview();
+  });
+})();
+</script>
+
+<div id="editCardModal" role="dialog" aria-modal="true">
+  <div class="box">
+    <h3>Edit Card</h3>
+    <label>Front</label>
+    <input id="ecFront" type="text" placeholder="Front (optional)" />
+    <label>Back</label>
+    <textarea id="ecBack" rows="6" placeholder="Back (required)"></textarea>
+    <div class="row">
+      <button class="btn" id="ecCancel">Cancel</button>
+      <button class="btn primary" id="ecSave">Save</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  const emojiRE = /\p{Extended_Pictographic}|\uFE0F/gu;
+  function scrubEmoji(el){
+    if(!el) return;
+    const nodes = el.querySelectorAll('.btn');
+    nodes.forEach(b=>{
+      // replace direct text nodes only
+      for (const n of Array.from(b.childNodes)) {
+        if(n.nodeType===3){
+          n.nodeValue = n.nodeValue.replace(emojiRE,'').replace(/\s{2,}/g,' ').trim();
+        }
+      }
+      // also check title attribute
+      if(b.title) b.title = b.title.replace(emojiRE,'').trim();
+    });
+  }
+  const tools = document.querySelector('.tools');
+  scrubEmoji(tools);
+  const inkTb = document.getElementById('inkToolbar');
+  scrubEmoji(inkTb);
+
+  // Watch for dynamic additions (e.g., Download PDF button injected later)
+  const mo = new MutationObserver(()=>scrubEmoji(tools));
+  if(tools) mo.observe(tools, {childList:true, subtree:true});
+
+})();
+</script>
+
+<!-- image zoom overlay -->
+<div id="imgZoomOverlay"><div class="zoombox"><img alt="zoomed view"></div></div>
+<script>
+(function(){
+  const overlay = document.getElementById('imgZoomOverlay');
+  const big = overlay.querySelector('img');
+  const cards = document.getElementById('cards');
+  function openZoom(src){
+    big.src = src;
+    overlay.style.display = 'flex';
+    requestAnimationFrame(()=> overlay.classList.add('show'));
+  }
+  function closeZoom(){
+    overlay.classList.remove('show');
+    const hide = ()=>{ overlay.style.display = 'none'; big.src = ''; overlay.removeEventListener('transitionend', hide); };
+    overlay.addEventListener('transitionend', hide);
+    // Fallback in case 'transitionend' doesn't fire
+    setTimeout(hide, 250);
+  }
+  if(cards){
+    cards.addEventListener('click', (e)=>{
+      const img = e.target.closest('img');
+      if(!img) return;
+      if(!img.closest('#cards .item')) return;
+      // Only zoom snip/back preview images
+      openZoom(img.src);
+    });
+  }
+  overlay.addEventListener('click', closeZoom);
+  window.addEventListener('keydown', (e)=>{ if(e.key==='Escape') closeZoom(); });
+})();
+</script>
+</body></html>
